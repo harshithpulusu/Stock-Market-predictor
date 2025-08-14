@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import matplotlib
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, VotingRegressor
@@ -15,6 +16,19 @@ from sklearn.decomposition import PCA
 from sklearn.pipeline import Pipeline
 import warnings
 warnings.filterwarnings('ignore')
+
+# Try different backends for matplotlib
+try:
+    matplotlib.use('TkAgg')
+except:
+    try:
+        matplotlib.use('Qt5Agg')
+    except:
+        try:
+            matplotlib.use('Agg')
+            print("⚠️ Using non-interactive plotting backend. Charts will be saved instead of displayed.")
+        except:
+            print("⚠️ Matplotlib backend issue. Charts may not display properly.")
 
 class AdvancedAIStockPredictor:
     def __init__(self):
@@ -434,49 +448,126 @@ class AdvancedAIStockPredictor:
         }
 
     def plot_advanced_predictions(self, dates, predictions, confidence_intervals, individual_models, symbol, current_price):
-        """Advanced AI visualization with multiple models and confidence intervals"""
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
+        """Enhanced AI visualization with detailed dates and prediction timeline"""
+        try:
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(16, 14))
+            
+            # Main prediction plot with detailed date markers
+            # Plot confidence intervals
+            ax1.fill_between(dates, confidence_intervals['lower_95'], confidence_intervals['upper_95'],
+                            alpha=0.2, color='lightblue', label='95% Confidence Interval')
+            ax1.fill_between(dates, confidence_intervals['lower_68'], confidence_intervals['upper_68'],
+                            alpha=0.3, color='lightgreen', label='68% Confidence Interval')
+            
+            # Plot individual model predictions
+            ax1.plot(dates, individual_models['neural'], '--', alpha=0.7, label='Neural Network', color='purple', linewidth=2)
+            ax1.plot(dates, individual_models['gradient_boost'], '--', alpha=0.7, label='Gradient Boosting', color='orange', linewidth=2)
+            ax1.plot(dates, individual_models['random_forest'], '--', alpha=0.7, label='Random Forest', color='green', linewidth=2)
+            
+            # Plot ensemble prediction with markers
+            ax1.plot(dates, predictions, 'r-', linewidth=4, label='AI Ensemble Prediction', color='red', marker='o', markersize=3)
+            
+            # Add current price point
+            ax1.scatter([dates[0]], [current_price], color='blue', s=150, label='Current Price', zorder=10, marker='o')
+            
+            # Add key milestone markers (simplified)
+            milestones = [0, 4, 9, 19, 29] if len(dates) >= 30 else [0, len(dates)//4, len(dates)//2, len(dates)-1]
+            milestone_labels = ['Today', '1 Week', '2 Weeks', '3 Weeks', '1 Month']
+            colors = ['blue', 'green', 'yellow', 'orange', 'red']
+            
+            for i, (idx, label) in enumerate(zip(milestones, milestone_labels)):
+                if idx < len(dates):
+                    ax1.scatter([dates[idx]], [predictions[idx]], s=100, zorder=15, 
+                               color=colors[i], marker='s', edgecolors='white', linewidth=1)
+            
+            # Formatting main plot
+            ax1.set_title(f'Advanced AI Stock Predictions: {symbol}', fontsize=16, fontweight='bold')
+            ax1.set_ylabel('Price ($)', fontsize=12)
+            ax1.legend(loc='upper left', framealpha=0.9, fontsize=10)
+            ax1.grid(True, alpha=0.3)
+            
+            # Format x-axis to show specific dates clearly
+            if len(dates) > 10:
+                step = max(1, len(dates) // 8)
+                date_positions = dates[::step]
+                date_labels = [d.strftime('%m/%d') for d in date_positions]
+                ax1.set_xticks(date_positions)
+                ax1.set_xticklabels(date_labels, rotation=45)
+            
+            # Daily prediction timeline chart
+            daily_count = min(15, len(dates))
+            daily_dates = dates[:daily_count]
+            daily_predictions = predictions[:daily_count]
+            daily_changes = [(pred - current_price) / current_price * 100 for pred in daily_predictions]
+            
+            colors_bars = ['green' if change >= 0 else 'red' for change in daily_changes]
+            bars = ax2.bar(range(len(daily_dates)), daily_changes, color=colors_bars, alpha=0.7, edgecolor='black')
+            
+            # Add percentage labels on bars
+            for i, (bar, change) in enumerate(zip(bars, daily_changes)):
+                height = bar.get_height()
+                ax2.annotate(f'{change:+.1f}%',
+                            xy=(bar.get_x() + bar.get_width() / 2, height),
+                            xytext=(0, 3 if height >= 0 else -15),
+                            textcoords="offset points",
+                            ha='center', va='bottom' if height >= 0 else 'top',
+                            fontsize=8, fontweight='bold')
+            
+            ax2.set_title('Daily Price Change Predictions', fontsize=14, fontweight='bold')
+            ax2.set_xlabel('Trading Days', fontsize=12)
+            ax2.set_ylabel('Expected Change (%)', fontsize=12)
+            ax2.grid(True, alpha=0.3, axis='y')
+            ax2.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+            
+            # Set x-axis labels with dates
+            date_labels_bar = [f'Day {i+1}' for i in range(len(daily_dates))]
+            ax2.set_xticks(range(len(daily_dates)))
+            ax2.set_xticklabels(date_labels_bar, rotation=45, fontsize=9)
+            
+            # Model performance comparison plot
+            if hasattr(self, 'model_performances') and self.model_performances:
+                models = list(self.model_performances.keys())
+                r2_scores = [self.model_performances[model]['test_r2'] for model in models]
+                
+                x_pos = np.arange(len(models))
+                bars_perf = ax3.bar(x_pos, r2_scores, alpha=0.8, color='skyblue', edgecolor='navy')
+                
+                ax3.set_xlabel('AI Models', fontsize=12)
+                ax3.set_ylabel('R² Score', fontsize=12)
+                ax3.set_title('AI Model Performance Comparison', fontsize=14, fontweight='bold')
+                ax3.set_xticks(x_pos)
+                ax3.set_xticklabels(models, rotation=45)
+                ax3.grid(True, alpha=0.3)
+                
+                # Add value labels on bars
+                for bar in bars_perf:
+                    height = bar.get_height()
+                    ax3.annotate(f'{height:.3f}',
+                               xy=(bar.get_x() + bar.get_width() / 2, height),
+                               xytext=(0, 3), textcoords="offset points",
+                               ha='center', va='bottom', fontsize=9, fontweight='bold')
+            
+            plt.tight_layout()
+            
+            # Try to show the plot, if it fails, save it
+            try:
+                plt.show()
+                print("✅ Charts displayed successfully!")
+            except:
+                # Save the plot instead
+                filename = f"{symbol}_AI_predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                plt.savefig(filename, dpi=300, bbox_inches='tight')
+                print(f"📁 Charts saved as: {filename}")
+                plt.close()
+            
+            # Print detailed daily predictions table
+            self.print_detailed_predictions_table(dates, predictions, confidence_intervals, current_price)
+            
+        except Exception as e:
+            print(f"❌ Error generating plots: {e}")
+            print("📊 Displaying simplified analysis instead...")
+            self.print_simplified_analysis(dates, predictions, confidence_intervals, current_price, symbol)
         
-        # Main prediction plot
-        # Plot confidence intervals
-        ax1.fill_between(dates, confidence_intervals['lower_95'], confidence_intervals['upper_95'],
-                        alpha=0.2, color='lightblue', label='95% AI Confidence Interval')
-        ax1.fill_between(dates, confidence_intervals['lower_68'], confidence_intervals['upper_68'],
-                        alpha=0.3, color='lightgreen', label='68% AI Confidence Interval')
-        
-        # Plot individual model predictions
-        ax1.plot(dates, individual_models['neural'], '--', alpha=0.7, label='Neural Network', color='purple')
-        ax1.plot(dates, individual_models['gradient_boost'], '--', alpha=0.7, label='Gradient Boosting', color='orange')
-        ax1.plot(dates, individual_models['random_forest'], '--', alpha=0.7, label='Random Forest', color='green')
-        
-        # Plot ensemble prediction
-        ax1.plot(dates, predictions, 'r-', linewidth=3, label='🤖 AI Ensemble Prediction', color='red')
-        
-        # Add current price point
-        ax1.scatter([dates[0]], [current_price], color='blue', s=150, label='Current Price', zorder=10, marker='o')
-        
-        # Formatting main plot
-        ax1.set_title(f'🧠 Advanced AI Stock Predictions: {symbol}\n'
-                     f'Multi-Model Ensemble with Confidence Intervals',
-                     fontsize=16, pad=20, fontweight='bold')
-        ax1.set_xlabel('Date', fontsize=12)
-        ax1.set_ylabel('Price ($)', fontsize=12)
-        ax1.legend(loc='upper left', framealpha=0.9)
-        ax1.grid(True, alpha=0.3)
-        ax1.tick_params(axis='x', rotation=45)
-        
-        # Add price annotations
-        ax1.annotate(f'Current: ${current_price:.2f}',
-                    xy=(dates[0], current_price),
-                    xytext=(10, 10), textcoords='offset points',
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='blue', alpha=0.7),
-                    fontcolor='white', fontweight='bold')
-        
-        ax1.annotate(f'AI Target: ${predictions[-1]:.2f}',
-                    xy=(dates[-1], predictions[-1]),
-                    xytext=(-60, 10), textcoords='offset points',
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='red', alpha=0.7),
-                    fontcolor='white', fontweight='bold')
         
         # Model performance comparison plot
         if self.model_performances:
@@ -487,58 +578,121 @@ class AdvancedAIStockPredictor:
             x_pos = np.arange(len(models))
             
             # R² scores
-            bars1 = ax2.bar(x_pos - 0.2, r2_scores, 0.4, label='R² Score', alpha=0.8, color='skyblue')
+            bars1 = ax3.bar(x_pos - 0.2, r2_scores, 0.4, label='R² Score (Accuracy)', alpha=0.8, color='skyblue', edgecolor='navy')
             
             # MAE scores (normalized)
             mae_normalized = [mae/max(mae_scores) for mae in mae_scores]
-            bars2 = ax2.bar(x_pos + 0.2, mae_normalized, 0.4, label='MAE (normalized)', alpha=0.8, color='lightcoral')
+            bars2 = ax3.bar(x_pos + 0.2, mae_normalized, 0.4, label='MAE Score (Lower is Better)', alpha=0.8, color='lightcoral', edgecolor='darkred')
             
-            ax2.set_xlabel('AI Models', fontsize=12)
-            ax2.set_ylabel('Performance Score', fontsize=12)
-            ax2.set_title('🏆 AI Model Performance Comparison', fontsize=14, fontweight='bold')
-            ax2.set_xticks(x_pos)
-            ax2.set_xticklabels(models, rotation=45)
-            ax2.legend()
-            ax2.grid(True, alpha=0.3)
+            ax3.set_xlabel('AI Models', fontsize=12)
+            ax3.set_ylabel('Performance Score', fontsize=12)
+            ax3.set_title('🏆 AI Model Performance Comparison', fontsize=14, fontweight='bold')
+            ax3.set_xticks(x_pos)
+            ax3.set_xticklabels(models, rotation=45)
+            ax3.legend()
+            ax3.grid(True, alpha=0.3)
             
             # Add value labels on bars
             for bar in bars1:
                 height = bar.get_height()
-                ax2.annotate(f'{height:.3f}',
+                ax3.annotate(f'{height:.3f}',
                            xy=(bar.get_x() + bar.get_width() / 2, height),
                            xytext=(0, 3), textcoords="offset points",
-                           ha='center', va='bottom', fontsize=9)
+                           ha='center', va='bottom', fontsize=9, fontweight='bold')
+            
+            for bar in bars2:
+                height = bar.get_height()
+                ax3.annotate(f'{height:.3f}',
+                           xy=(bar.get_x() + bar.get_width() / 2, height),
+                           xytext=(0, 3), textcoords="offset points",
+                           ha='center', va='bottom', fontsize=9, fontweight='bold')
         
         # Calculate and display predictions statistics
         pct_change = ((predictions[-1] - current_price) / current_price) * 100
         volatility = np.std(predictions) / np.mean(predictions) * 100
         
-        # Add statistics box
-        stats_text = f"""📊 AI Prediction Analytics:
-        Expected Return: {pct_change:+.2f}%
-        Prediction Volatility: {volatility:.2f}%
-        Confidence Level: {np.mean(self.prediction_confidence[-1:]):.2f}
-        Time Horizon: {len(dates)} trading days"""
+        # Add comprehensive statistics box
+        stats_text = f"""📊 AI Prediction Analytics Dashboard:
         
-        props = dict(boxstyle='round', facecolor='wheat', alpha=0.8)
+        📈 Expected Return: {pct_change:+.2f}%
+        📊 Prediction Volatility: {volatility:.2f}%
+        🎯 AI Confidence: {np.mean(self.prediction_confidence[-1:]):.2f}/1.0
+        ⏰ Forecast Period: {len(dates)} trading days
+        📅 Target Date: {dates[-1].strftime('%B %d, %Y')}
+        
+        🎲 Risk Level: {'🟢 LOW' if volatility < 5 else '🟡 MEDIUM' if volatility < 10 else '🔴 HIGH'}
+        📉 Max Downside: {min(confidence_intervals['lower_95']) - current_price:.2f}
+        📈 Max Upside: {max(confidence_intervals['upper_95']) - current_price:.2f}"""
+        
+        props = dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.9, edgecolor='black')
         ax1.text(0.02, 0.98, stats_text, transform=ax1.transAxes, fontsize=10,
-                verticalalignment='top', bbox=props)
+                verticalalignment='top', bbox=props, fontfamily='monospace')
         
         plt.tight_layout()
         plt.show()
         
-        # Print detailed analysis
-        print(f"\n📈 Advanced AI Analysis Summary:")
-        print(f"{'='*60}")
-        print(f"🎯 Target Price (30 days): ${predictions[-1]:.2f}")
+        # Print detailed daily predictions table
+        self.print_detailed_predictions_table(dates, predictions, confidence_intervals, current_price)
+        
+        # Print comprehensive analysis
+        print(f"\n📈 Comprehensive AI Analysis Report:")
+        print(f"{'='*80}")
+        print(f"🎯 Target Price ({len(dates)} days): ${predictions[-1]:.2f}")
         print(f"📊 Expected Return: {pct_change:+.2f}%")
         print(f"📉 95% Confidence Range: ${confidence_intervals['lower_95'][-1]:.2f} - ${confidence_intervals['upper_95'][-1]:.2f}")
         print(f"🎲 Prediction Volatility: {volatility:.2f}%")
         if self.model_performances:
             best_model = max(self.model_performances.keys(), 
                            key=lambda x: self.model_performances[x]['test_r2'])
-            print(f"🏆 Best Performing Model: {best_model} (R² = {self.model_performances[best_model]['test_r2']:.4f})")
-        print(f"🧠 AI Confidence Score: {np.mean(self.prediction_confidence[-1:]):.3f}/1.0")
+            print(f"🏆 Best Model: {best_model} (R² = {self.model_performances[best_model]['test_r2']:.4f})")
+        print(f"🧠 AI Confidence: {np.mean(self.prediction_confidence[-1:]):.3f}/1.0")
+        print(f"📅 Forecast Horizon: {dates[0].strftime('%m/%d/%Y')} → {dates[-1].strftime('%m/%d/%Y')}")
+    
+    def print_detailed_predictions_table(self, dates, predictions, confidence_intervals, current_price):
+        """Print a detailed table of daily predictions"""
+        print(f"\n📅 Detailed Daily Predictions Table:")
+        print("=" * 85)
+        print(f"{'Date':<12} {'Price':<10} {'Change %':<10} {'68% Range':<20} {'95% Range':<20}")
+        print("-" * 85)
+        
+        for i in range(min(20, len(dates))):  # Show first 20 days
+            date_str = dates[i].strftime('%m/%d/%Y')
+            price = predictions[i]
+            change_pct = (price - current_price) / current_price * 100
+            range_68 = f"${confidence_intervals['lower_68'][i]:.2f}-${confidence_intervals['upper_68'][i]:.2f}"
+            range_95 = f"${confidence_intervals['lower_95'][i]:.2f}-${confidence_intervals['upper_95'][i]:.2f}"
+            
+            color_code = "📈" if change_pct >= 0 else "📉"
+            print(f"{date_str:<12} ${price:<9.2f} {color_code}{change_pct:+6.2f}%   {range_68:<20} {range_95:<20}")
+        
+        if len(dates) > 20:
+            print(f"... (showing first 20 days out of {len(dates)} total predictions)")
+        print("-" * 85)
+    
+    def print_simplified_analysis(self, dates, predictions, confidence_intervals, current_price, symbol):
+        """Print simplified analysis when charts fail to display"""
+        print(f"\n📈 Simplified AI Analysis for {symbol}:")
+        print("=" * 60)
+        
+        pct_change = ((predictions[-1] - current_price) / current_price) * 100
+        volatility = np.std(predictions) / np.mean(predictions) * 100
+        
+        print(f"🎯 Target Price ({len(dates)} days): ${predictions[-1]:.2f}")
+        print(f"📊 Expected Return: {pct_change:+.2f}%")
+        print(f"📉 95% Confidence Range: ${confidence_intervals['lower_95'][-1]:.2f} - ${confidence_intervals['upper_95'][-1]:.2f}")
+        print(f"🎲 Prediction Volatility: {volatility:.2f}%")
+        print(f"📅 Forecast Period: {dates[0].strftime('%m/%d/%Y')} → {dates[-1].strftime('%m/%d/%Y')}")
+        
+        # Show key predictions
+        print(f"\n📅 Key Predictions:")
+        key_indices = [0, len(dates)//4, len(dates)//2, 3*len(dates)//4, -1]
+        key_labels = ["Today", "Week 1", "Week 2", "Week 3", "Final"]
+        
+        for idx, label in zip(key_indices, key_labels):
+            if idx < len(dates):
+                print(f"  {label}: ${predictions[idx]:.2f} on {dates[idx].strftime('%m/%d/%Y')}")
+        
+        print("\n📊 To see full charts, please ensure matplotlib is properly configured.")
 
 def main():
     # Create advanced AI predictor instance
