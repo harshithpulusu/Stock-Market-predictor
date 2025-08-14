@@ -64,51 +64,97 @@ class SimpleStockPredictor:
         accuracy = np.mean(np.abs(predictions - y) / y) * 100
         print(f"Average prediction error: {accuracy:.2f}%")
 
-    def predict_future(self, X, days=30):
+    def predict_future(self, X, y, days=30):
         """Predict future stock prices"""
         if self.model is None:
             raise ValueError("Model not trained yet!")
         
-        # Scale the input data
-        X_scaled = self.scaler.transform(X)
-        
-        # Get the last known price
-        last_price = X_scaled[-1:]
+        # Get the last known data point
+        last_data = X.iloc[-1].copy()
+        last_price = y.iloc[-1]
         
         # Make predictions
-        predictions = []
-        dates = []
-        
+        predictions = [last_price]  # Start with the last known price
+        dates = [datetime.now()]
         current_date = datetime.now()
+        
         for i in range(days):
             # Skip weekends
+            current_date += timedelta(days=1)
             while current_date.weekday() > 4:  # 5 is Saturday, 6 is Sunday
                 current_date += timedelta(days=1)
             
-            # Predict the next day
-            pred = self.model.predict(last_price)[0]
-            predictions.append(pred)
-            dates.append(current_date)
+            # Update the features for the next prediction
+            last_data['Prev_Close'] = predictions[-1]
+            last_data['Price_Change'] = (predictions[-1] - predictions[-2]) / predictions[-2] if len(predictions) > 1 else 0
             
-            current_date += timedelta(days=1)
+            # Update moving averages
+            if i < 5:
+                last_data['SMA_5'] = np.mean(predictions[-5:] + [last_price] * (5 - len(predictions)))
+            else:
+                last_data['SMA_5'] = np.mean(predictions[-5:])
+            
+            if i < 20:
+                last_data['SMA_20'] = np.mean(predictions[-20:] + [last_price] * (20 - len(predictions)))
+            else:
+                last_data['SMA_20'] = np.mean(predictions[-20:])
+            
+            # Scale and predict
+            scaled_data = self.scaler.transform(last_data.values.reshape(1, -1))
+            next_price = self.model.predict(scaled_data)[0]
+            
+            # Add some realistic volatility
+            volatility = np.std(y.pct_change().dropna()) * np.sqrt(252)  # Annualized volatility
+            daily_volatility = volatility / np.sqrt(252)
+            random_factor = np.random.normal(0, daily_volatility)
+            next_price *= (1 + random_factor)
+            
+            predictions.append(next_price)
+            dates.append(current_date)
         
-        return dates, predictions
+        # Remove the first element (current price) as it's just used for calculations
+        return dates[1:], predictions[1:]
 
     def plot_predictions(self, dates, predictions, symbol, current_price):
-        """Plot the predicted stock prices"""
+        """Plot the predicted stock prices with confidence interval"""
         plt.figure(figsize=(12, 6))
         
+        # Calculate confidence interval (±2 standard deviations)
+        std_dev = np.std(predictions)
+        upper_bound = np.array(predictions) + 2 * std_dev
+        lower_bound = np.array(predictions) - 2 * std_dev
+        
+        # Plot confidence interval
+        plt.fill_between(dates, lower_bound, upper_bound, 
+                        alpha=0.2, color='gray', label='95% Confidence Interval')
+        
         # Plot predictions
-        plt.plot(dates, predictions, 'r--', label='Predicted Price')
+        plt.plot(dates, predictions, 'r-', label='Predicted Price', linewidth=2)
         
         # Add current price point
-        plt.scatter([dates[0]], [current_price], color='blue', label='Current Price')
+        plt.scatter([dates[0]], [current_price], color='blue', s=100,
+                   label='Current Price', zorder=5)
         
-        plt.title(f'{symbol} Stock Price Predictions')
-        plt.xlabel('Date')
-        plt.ylabel('Price ($)')
+        # Formatting
+        plt.title(f'{symbol} Stock Price Predictions\nNext {len(dates)} Trading Days',
+                 fontsize=14, pad=20)
+        plt.xlabel('Date', fontsize=12)
+        plt.ylabel('Price ($)', fontsize=12)
+        
+        # Add price labels
+        plt.text(dates[0], current_price, f'${current_price:.2f}', 
+                horizontalalignment='right', verticalalignment='bottom')
+        plt.text(dates[-1], predictions[-1], f'${predictions[-1]:.2f}', 
+                horizontalalignment='left', verticalalignment='bottom')
+        
+        # Calculate and display predicted change
+        pct_change = ((predictions[-1] - current_price) / current_price) * 100
+        color = 'green' if pct_change >= 0 else 'red'
+        plt.figtext(0.02, 0.02, f'Predicted Change: {pct_change:+.2f}%',
+                   color=color, fontsize=10)
+        
         plt.legend()
-        plt.grid(True)
+        plt.grid(True, alpha=0.3)
         plt.xticks(rotation=45)
         plt.tight_layout()
         plt.show()
@@ -131,12 +177,12 @@ def main():
         predictor.train_model(X, y)
         
         # Get predictions for next month
-        current_price = data['Close'][-1]
+        current_price = data['Close'].iloc[-1]
         print(f"\nCurrent {symbol} price: ${current_price:.2f}")
         
         # Predict next week and month
-        dates_week, predictions_week = predictor.predict_future(X, days=7)
-        dates_month, predictions_month = predictor.predict_future(X, days=30)
+        dates_week, predictions_week = predictor.predict_future(X, y, days=7)
+        dates_month, predictions_month = predictor.predict_future(X, y, days=30)
         
         # Print predictions
         print("\nPredicted prices for next week:")
