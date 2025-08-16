@@ -469,7 +469,7 @@ def main():
             st.metric("AI Confidence", f"{confidence:.1%}")
         
         with col3:
-            volatility = data['Returns'].std() * np.sqrt(252) * 100
+            volatility = enhanced_data['Returns'].std() * np.sqrt(252) * 100
             st.metric("Volatility", f"{volatility:.1f}%")
         
         with col4:
