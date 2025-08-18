@@ -798,6 +798,9 @@ def main():
         # Create comprehensive prediction table
         weekly_predictions = predictions.iloc[::7].head(8)  # Every 7 days
         
+        # Get current time without timezone for consistent calculation
+        current_time = pd.Timestamp.now().tz_localize(None)
+        
         # Calculate additional metrics
         weekly_changes = [((price - current_price) / current_price * 100) for price in weekly_predictions['Predicted_Price']]
         weekly_profits = [(price - current_price) for price in weekly_predictions['Predicted_Price']]
@@ -821,7 +824,7 @@ def main():
             'Price Change': [f"${profit:+.2f}" for profit in weekly_profits],
             'Percentage': [f"{change:+.1f}%" for change in weekly_changes],
             'Signal': signals,
-            'Days from Now': [(date - pd.Timestamp.now()).days for date in weekly_predictions['Date']]
+            'Days from Now': [(pd.Timestamp(date).tz_localize(None) - current_time).days for date in weekly_predictions['Date']]
         })
         
         # Style the dataframe
