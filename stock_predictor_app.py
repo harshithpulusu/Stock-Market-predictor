@@ -521,58 +521,82 @@ def create_risk_return_gauge(predictions, current_price, volatility):
 
 def create_technical_indicators_chart(data):
     """Create technical indicators chart"""
-    recent_data = data.tail(100)
-    
-    # Create subplots
-    fig = make_subplots(
-        rows=4, cols=1,
-        shared_xaxis=True,
-        subplot_titles=('RSI', 'MACD', 'Bollinger Bands', 'Volume'),
-        vertical_spacing=0.05,
-        row_heights=[0.25, 0.25, 0.25, 0.25]
-    )
-    
-    # RSI
-    fig.add_trace(go.Scatter(
-        x=recent_data.index, y=recent_data['RSI'],
-        name='RSI', line=dict(color='purple')
-    ), row=1, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="red", row=1, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="green", row=1, col=1)
-    
-    # MACD
-    fig.add_trace(go.Scatter(
-        x=recent_data.index, y=recent_data['MACD'],
-        name='MACD', line=dict(color='blue')
-    ), row=2, col=1)
-    fig.add_trace(go.Scatter(
-        x=recent_data.index, y=recent_data['MACD_Signal'],
-        name='Signal', line=dict(color='red')
-    ), row=2, col=1)
-    
-    # Bollinger Bands
-    fig.add_trace(go.Scatter(
-        x=recent_data.index, y=recent_data['Close'],
-        name='Price', line=dict(color='black')
-    ), row=3, col=1)
-    fig.add_trace(go.Scatter(
-        x=recent_data.index, y=recent_data['BB_Upper'],
-        name='Upper Band', line=dict(color='gray', dash='dash')
-    ), row=3, col=1)
-    fig.add_trace(go.Scatter(
-        x=recent_data.index, y=recent_data['BB_Lower'],
-        name='Lower Band', line=dict(color='gray', dash='dash'),
-        fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
-    ), row=3, col=1)
-    
-    # Volume
-    fig.add_trace(go.Bar(
-        x=recent_data.index, y=recent_data['Volume'],
-        name='Volume', marker_color='lightblue'
-    ), row=4, col=1)
-    
-    fig.update_layout(height=800, showlegend=False)
-    return fig
+    try:
+        recent_data = data.tail(100)
+        
+        # Check if required columns exist
+        required_cols = ['RSI', 'MACD', 'MACD_Signal', 'BB_Upper', 'BB_Lower', 'Close', 'Volume']
+        missing_cols = [col for col in required_cols if col not in recent_data.columns]
+        
+        if missing_cols:
+            st.error(f"Missing technical indicator columns: {missing_cols}")
+            return None
+        
+        # Create subplots
+        fig = make_subplots(
+            rows=4, cols=1,
+            shared_xaxes=True,
+            subplot_titles=('RSI', 'MACD', 'Bollinger Bands', 'Volume'),
+            vertical_spacing=0.05,
+            row_heights=[0.25, 0.25, 0.25, 0.25]
+        )
+        
+        # RSI
+        if 'RSI' in recent_data.columns and not recent_data['RSI'].isna().all():
+            fig.add_trace(go.Scatter(
+                x=recent_data.index, y=recent_data['RSI'],
+                name='RSI', line=dict(color='purple')
+            ), row=1, col=1)
+            fig.add_hline(y=70, line_dash="dash", line_color="red", row=1, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="green", row=1, col=1)
+        
+        # MACD
+        if 'MACD' in recent_data.columns and 'MACD_Signal' in recent_data.columns:
+            if not recent_data['MACD'].isna().all():
+                fig.add_trace(go.Scatter(
+                    x=recent_data.index, y=recent_data['MACD'],
+                    name='MACD', line=dict(color='blue')
+                ), row=2, col=1)
+            if not recent_data['MACD_Signal'].isna().all():
+                fig.add_trace(go.Scatter(
+                    x=recent_data.index, y=recent_data['MACD_Signal'],
+                    name='Signal', line=dict(color='red')
+                ), row=2, col=1)
+        
+        # Bollinger Bands
+        if 'Close' in recent_data.columns and not recent_data['Close'].isna().all():
+            fig.add_trace(go.Scatter(
+                x=recent_data.index, y=recent_data['Close'],
+                name='Price', line=dict(color='black')
+            ), row=3, col=1)
+            
+        if 'BB_Upper' in recent_data.columns and not recent_data['BB_Upper'].isna().all():
+            fig.add_trace(go.Scatter(
+                x=recent_data.index, y=recent_data['BB_Upper'],
+                name='Upper Band', line=dict(color='gray', dash='dash')
+            ), row=3, col=1)
+            
+        if 'BB_Lower' in recent_data.columns and not recent_data['BB_Lower'].isna().all():
+            fig.add_trace(go.Scatter(
+                x=recent_data.index, y=recent_data['BB_Lower'],
+                name='Lower Band', line=dict(color='gray', dash='dash'),
+                fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
+            ), row=3, col=1)
+        
+        # Volume
+        if 'Volume' in recent_data.columns and not recent_data['Volume'].isna().all():
+            fig.add_trace(go.Bar(
+                x=recent_data.index, y=recent_data['Volume'],
+                name='Volume', marker_color='lightblue'
+            ), row=4, col=1)
+        
+        fig.update_layout(height=800, showlegend=False)
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating technical indicators chart: {str(e)}")
+        st.error(f"Available columns: {list(data.columns)}")
+        return None
 
 def main():
     # App header
@@ -733,7 +757,10 @@ def main():
         # Technical indicators
         st.subheader("📊 Technical Indicators")
         tech_chart = create_technical_indicators_chart(enhanced_data)
-        st.plotly_chart(tech_chart, use_container_width=True)
+        if tech_chart:
+            st.plotly_chart(tech_chart, use_container_width=True)
+        else:
+            st.warning("Unable to display technical indicators chart. This may be due to insufficient data or missing technical indicators.")
         
         # Model performance
         st.subheader("🤖 AI Model Performance")
