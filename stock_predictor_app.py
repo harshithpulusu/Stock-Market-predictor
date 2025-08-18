@@ -599,201 +599,453 @@ def create_technical_indicators_chart(data):
         return None
 
 def main():
-    # App header
-    st.markdown('<h1 class="main-header">🚀 AI Stock Market Predictor</h1>', unsafe_allow_html=True)
+    # Simple app header
+    st.markdown('<h1 class="main-header">🚀 Smart Stock Analyzer</h1>', unsafe_allow_html=True)
     
-    # Sidebar
-    st.sidebar.header("📊 Analysis Settings")
+    # Sidebar with beginner explanations
+    st.sidebar.header("🎯 Get Started Here")
     
-    # Stock symbol input
+    # Add beginner help section
+    with st.sidebar.expander("❓ New to Stocks? Click Here!"):
+        st.markdown("""
+        **Stock Symbol**: A short code for a company (e.g., AAPL = Apple Inc.)
+        
+        **Popular Stock Symbols:**
+        - 🍎 AAPL (Apple)
+        - 🚗 TSLA (Tesla)  
+        - 💻 MSFT (Microsoft)
+        - 🛒 AMZN (Amazon)
+        - 🔍 GOOGL (Google)
+        
+        **Data Period**: How far back to look at the stock's history
+        
+        **Prediction Days**: How many days into the future to predict
+        """)
+    
+    # Stock symbol input with more guidance
+    st.sidebar.markdown("### 📈 Choose a Stock to Analyze")
     symbol = st.sidebar.text_input(
-        "Stock Symbol",
+        "Stock Symbol (Ticker)",
         value="AAPL",
-        help="Enter a valid stock symbol (e.g., AAPL, TSLA, MSFT)"
+        help="💡 Try AAPL, TSLA, MSFT, AMZN, or GOOGL for popular stocks",
+        placeholder="e.g., AAPL"
     ).upper().strip()
     
-    # Time period selection
+    # Time period selection with explanations
+    st.sidebar.markdown("### 📅 Analysis Time Period")
     period_options = {
-        "6 months": "6mo",
-        "1 year": "1y",
-        "2 years": "2y",
-        "5 years": "5y"
+        "6 months (Recent trends)": "6mo",
+        "1 year (Full year view)": "1y", 
+        "2 years (Medium-term patterns)": "2y",
+        "5 years (Long-term trends)": "5y"
     }
-    period_display = st.sidebar.selectbox("Data Period", list(period_options.keys()), index=2)
+    period_display = st.sidebar.selectbox(
+        "How much history to analyze?", 
+        list(period_options.keys()), 
+        index=2,
+        help="📊 More history = better AI predictions, but 2 years is usually perfect"
+    )
     period = period_options[period_display]
     
-    # Prediction days
-    prediction_days = st.sidebar.slider("Prediction Days", 7, 60, 30)
+    # Prediction days with beginner explanation
+    st.sidebar.markdown("### 🔮 Prediction Timeline")
+    prediction_days = st.sidebar.slider(
+        "Predict how many days ahead?", 
+        7, 60, 30,
+        help="🎯 Shorter predictions are more accurate. 30 days is a good balance!"
+    )
     
     # Analysis button
-    analyze_button = st.sidebar.button("🔮 Analyze Stock", type="primary")
+    analyze_button = st.sidebar.button("🚀 Start Analysis", type="primary")
+    
+    # Add educational sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 💡 Quick Tips")
+    st.sidebar.info("""
+    **Green signals** 🟢 = Good time to consider buying
+    
+    **Red signals** 🔴 = Might want to avoid or sell
+    
+    **Yellow signals** 🟡 = Wait and see
+    
+    💡 **Remember**: This is analysis, not financial advice!
+    """)
     
     # Initialize predictor
     predictor = StockPredictorApp()
     
     if analyze_button and symbol:
-        # Progress bar
+        # Progress bar with friendly messages
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         # Fetch data
-        status_text.text("📥 Fetching stock data...")
+        status_text.text("📊 Getting stock data from the market... (This is like checking the stock's report card)")
         progress_bar.progress(20)
         
         data, stock_info, success = predictor.fetch_data(symbol, period)
         
         if not success:
-            st.error("❌ Failed to fetch data. Please check the stock symbol.")
+            st.error("❌ Oops! We couldn't find that stock symbol. Try checking the spelling or use a popular one like AAPL, TSLA, or MSFT.")
             return
         
         predictor.data = data
         predictor.stock_info = stock_info
         
         # Create features
-        status_text.text("🔬 Creating technical features...")
+        status_text.text("🔬 Analyzing price patterns and trends... (Teaching our AI about this stock)")
         progress_bar.progress(40)
         
         enhanced_data = predictor.create_technical_features(data)
         
         # Train model
-        status_text.text("🤖 Training AI models...")
+        status_text.text("🤖 AI is learning from historical data... (Like studying years of stock behavior)")
         progress_bar.progress(60)
         
         model_results, best_model_name, best_score = predictor.train_model(enhanced_data)
         
         # Make predictions
-        status_text.text("🔮 Generating predictions...")
+        status_text.text("🔮 Creating your personalized prediction... (AI is making its best guess)")
         progress_bar.progress(80)
         
         predictions = predictor.make_predictions(enhanced_data, prediction_days)
         
         progress_bar.progress(100)
-        status_text.text("✅ Analysis complete!")
-        time.sleep(1)
+        status_text.text("✅ Your analysis is ready! Scroll down to see the results.")
+        time.sleep(2)
         progress_bar.empty()
         status_text.empty()
         
-        # Display results
-        st.success("🎉 Analysis completed successfully!")
+        # Display results with celebration
+        st.balloons()
+        st.success("🎉 Great! Your stock analysis is complete. Here's what our AI found...")
         
-        # Company information
+        # Company information with explanations
+        st.markdown("### 🏢 About This Company")
         col1, col2, col3 = st.columns(3)
         
         with col1:
+            daily_change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100)
+            change_emoji = "📈" if daily_change > 0 else "📉" if daily_change < 0 else "➡️"
             st.metric(
-                "Current Price",
+                "Today's Stock Price",
                 f"${data['Close'].iloc[-1]:.2f}",
-                f"{((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100):+.2f}%"
+                f"{daily_change:+.2f}%",
+                help="💡 This is what one share costs right now, and how much it changed since yesterday"
             )
         
         with col2:
             company_name = stock_info.get('longName', 'N/A') if stock_info else 'N/A'
-            st.metric("Company", company_name[:20] + "..." if len(company_name) > 20 else company_name)
+            display_name = company_name[:25] + "..." if len(company_name) > 25 else company_name
+            st.metric(
+                "Company Name", 
+                display_name,
+                help="🏢 The full name of the company you're analyzing"
+            )
         
         with col3:
             sector = stock_info.get('sector', 'N/A') if stock_info else 'N/A'
-            st.metric("Sector", sector)
+            st.metric(
+                "Business Type", 
+                sector,
+                help="🏭 What kind of business this company is in (like Technology, Healthcare, etc.)"
+            )
         
-        # Prediction summary
+        # Prediction summary with beginner explanations
         current_price = data['Close'].iloc[-1]
         predicted_price = predictions['Predicted_Price'].iloc[-1]
         expected_return = (predicted_price - current_price) / current_price * 100
         
-        st.subheader("🎯 AI Prediction Summary")
+        st.markdown("### 🔮 What Our AI Predicts")
+        st.markdown("*Based on analyzing historical patterns and market trends*")
+        
+        # Create recommendation box
+        if expected_return > 10:
+            recommendation = "🟢 **Strong Positive Signal** - AI sees good potential!"
+            rec_color = "green"
+        elif expected_return > 2:
+            recommendation = "🟢 **Positive Signal** - Looks promising!"
+            rec_color = "green"
+        elif expected_return > -2:
+            recommendation = "🟡 **Neutral Signal** - Wait and see approach"
+            rec_color = "orange"
+        elif expected_return > -10:
+            recommendation = "🟠 **Caution Signal** - Be careful"
+            rec_color = "orange"
+        else:
+            recommendation = "🔴 **Negative Signal** - AI suggests avoiding"
+            rec_color = "red"
+        
+        st.markdown(f"#### {recommendation}")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
-                f"{prediction_days}-Day Target",
+                f"Predicted Price ({prediction_days} days)",
                 f"${predicted_price:.2f}",
-                f"{expected_return:+.1f}%"
+                f"{expected_return:+.1f}%",
+                help=f"💡 If you bought at ${current_price:.2f} today, AI thinks it might be worth ${predicted_price:.2f} in {prediction_days} days"
             )
         
         with col2:
             confidence = max(0, min(1, (best_score + 1) / 2))
-            st.metric("AI Confidence", f"{confidence:.1%}")
+            confidence_text = "High 🎯" if confidence > 0.7 else "Medium 🤔" if confidence > 0.5 else "Low ⚠️"
+            st.metric(
+                "AI Confidence Level", 
+                f"{confidence:.0%}",
+                confidence_text,
+                help="💡 How sure our AI is about this prediction. Higher is better!"
+            )
         
         with col3:
             volatility = enhanced_data['Returns'].std() * np.sqrt(252) * 100
-            st.metric("Volatility", f"{volatility:.1f}%")
+            vol_text = "Very Risky 🌋" if volatility > 40 else "Risky 🌊" if volatility > 25 else "Moderate 📊" if volatility > 15 else "Stable 🏔️"
+            st.metric(
+                "Risk Level", 
+                f"{volatility:.0f}%",
+                vol_text,
+                help="💡 How much this stock's price jumps around. Lower = more stable, Higher = more risky"
+            )
         
         with col4:
             if expected_return > 5:
-                signal = "🟢 BUY"
+                signal = "🟢 BUY SIGNAL"
+                signal_help = "AI thinks this might be a good time to consider buying"
             elif expected_return < -5:
-                signal = "🔴 SELL"
+                signal = "🔴 SELL SIGNAL"
+                signal_help = "AI suggests this might not be the best time to buy"
             else:
-                signal = "🟡 HOLD"
-            st.metric("Signal", signal)
+                signal = "🟡 HOLD/WAIT"
+                signal_help = "AI suggests waiting for a better opportunity"
+            
+            st.metric(
+                "Action Suggestion", 
+                signal,
+                help=f"💡 {signal_help}"
+            )
         
-        # Main chart
-        st.subheader("📈 Price Analysis & Predictions")
+        # Main chart with explanation
+        st.markdown("### 📊 Interactive Stock Chart")
+        st.markdown("*This chart shows the stock's price history and our AI's predictions*")
+        
+        with st.expander("📖 How to read this chart"):
+            st.markdown("""
+            - **Green line** 📈: Stock price going up
+            - **Red line** 📉: Stock price going down  
+            - **Blue area** 🔮: AI's future predictions
+            - **Moving averages** 📊: Smooth trend lines that help spot patterns
+            - **Volume bars** 📊: How many shares were traded (taller = more activity)
+            """)
+        
         main_chart = create_interactive_charts(enhanced_data, predictions, symbol)
         st.plotly_chart(main_chart, use_container_width=True)
         
-        # New comprehensive prediction charts
+        # New comprehensive prediction charts with explanations
+        st.markdown("### 🎯 Future Predictions Breakdown")
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("🎯 Prediction Timeline")
+            st.markdown("#### 📅 Day-by-Day Predictions")
+            st.markdown("*See exactly what price our AI predicts for each day*")
             timeline_chart = create_prediction_timeline_chart(predictions, current_price, symbol)
             if timeline_chart:
                 st.plotly_chart(timeline_chart, use_container_width=True)
+            else:
+                st.info("📊 Chart will appear here after analysis")
         
         with col2:
-            st.subheader("📅 Weekly Targets")
+            st.markdown("#### 🎯 Weekly Investment Targets")
+            st.markdown("*Perfect for planning your investment strategy*")
             weekly_chart = create_weekly_targets_chart(predictions, current_price, symbol)
             if weekly_chart:
                 st.plotly_chart(weekly_chart, use_container_width=True)
+            else:
+                st.info("📊 Chart will appear here after analysis")
         
-        # Risk-Return Analysis
-        st.subheader("📊 Risk & Return Analysis")
+        # Risk-Return Analysis with explanation
+        st.markdown("### ⚖️ Investment Risk Assessment")
+        st.markdown("*Understanding the risk vs reward potential*")
+        
         volatility = enhanced_data['Returns'].std() * np.sqrt(252) * 100
         risk_return_chart = create_risk_return_gauge(predictions, current_price, volatility)
         if risk_return_chart:
             st.plotly_chart(risk_return_chart, use_container_width=True)
+            
+            # Add risk explanation
+            if volatility > 40:
+                risk_explanation = "🌋 **High Risk**: This stock's price changes a lot - could gain or lose significant value quickly!"
+            elif volatility > 25:
+                risk_explanation = "🌊 **Medium-High Risk**: Expect some ups and downs, but manageable for experienced investors"
+            elif volatility > 15:
+                risk_explanation = "📊 **Moderate Risk**: Reasonable price stability with some normal fluctuations"
+            else:
+                risk_explanation = "🏔️ **Lower Risk**: This stock tends to be more stable and predictable"
+                
+            st.info(f"💡 **Risk Level Explanation**: {risk_explanation}")
+        else:
+            st.info("📊 Risk analysis will appear here after analysis")
         
-        # Technical indicators
-        st.subheader("📊 Technical Indicators")
+        # Technical indicators with beginner explanation
+        st.markdown("### 📊 Market Signals & Indicators")
+        st.markdown("*Professional trading signals that help predict price movements*")
+        
+        with st.expander("🎓 Learn about these market indicators"):
+            st.markdown("""
+            **RSI (Relative Strength)**: Shows if a stock is "overbought" (might go down) or "oversold" (might go up)
+            - Above 70 = Might be too expensive right now 📈
+            - Below 30 = Might be a good buying opportunity 📉
+            
+            **MACD (Moving Average)**: Compares short and long-term price trends
+            - Lines crossing up = Positive momentum 🟢
+            - Lines crossing down = Negative momentum 🔴
+            
+            **Bollinger Bands**: Shows if a price is unusually high or low
+            - Price near top band = Might be overpriced 🔴
+            - Price near bottom band = Might be underpriced 🟢
+            
+            **Volume**: How many shares are being traded
+            - High volume + price up = Strong buying interest 💪
+            - High volume + price down = Strong selling pressure ⚠️
+            """)
+        
         tech_chart = create_technical_indicators_chart(enhanced_data)
         if tech_chart:
             st.plotly_chart(tech_chart, use_container_width=True)
         else:
-            st.warning("Unable to display technical indicators chart. This may be due to insufficient data or missing technical indicators.")
+            st.info("📊 Technical indicators will appear here once we have enough data to analyze.")
         
-        # Model performance
-        st.subheader("🤖 AI Model Performance")
+        # Model performance with beginner explanation
+        st.markdown("### 🤖 How Accurate is Our AI?")
+        st.markdown("*See how well our different AI models performed in testing*")
         
         model_df = pd.DataFrame({
-            'Model': list(model_results.keys()),
-            'R² Score': [results['mean_score'] for results in model_results.values()],
-            'Std Dev': [results['std_score'] for results in model_results.values()]
-        }).sort_values('R² Score', ascending=False)
+            'AI Model': list(model_results.keys()),
+            'Accuracy Score': [f"{results['mean_score']:.1%}" for results in model_results.values()],
+            'Consistency': [f"±{results['std_score']:.1%}" for results in model_results.values()],
+            'Raw Score': [results['mean_score'] for results in model_results.values()]
+        }).sort_values('Raw Score', ascending=False)
+        
+        # Highlight the best model
+        best_model_row = model_df.iloc[0]
+        st.success(f"🏆 **Best Performing Model**: {best_model_row['AI Model']} with {best_model_row['Accuracy Score']} accuracy")
+        
+        # Display model comparison
+        st.dataframe(model_df[['AI Model', 'Accuracy Score', 'Consistency']], hide_index=True, use_container_width=True)
+        
+        with st.expander("🧠 What do these accuracy scores mean?"):
+            st.markdown("""
+            **Accuracy Score**: How often our AI gets the predictions right
+            - 90%+ = Excellent! Very reliable predictions 🎯
+            - 80-90% = Very Good! Trustworthy for most decisions ✅
+            - 70-80% = Good! Useful but consider other factors 👍
+            - Below 70% = Okay, but use with caution ⚠️
+            
+            **Consistency**: How much the accuracy varies
+            - Lower numbers = More consistent and reliable
+            - Higher numbers = More unpredictable results
+            
+            💡 **Remember**: Even the best AI can't predict the future perfectly. Always do your own research!
+            """)
         
         st.dataframe(model_df, use_container_width=True)
         
         # Feature importance (if available)
         if hasattr(predictor.model, 'feature_importances_'):
-            st.subheader("🔍 Feature Importance")
+            st.subheader("🔍 AI Model: What Drives the Predictions?")
+            
+            # Create a mapping of technical feature names to user-friendly descriptions
+            feature_descriptions = {
+                'Returns': '📈 Daily Price Changes',
+                'Price_MA_5': '📊 5-Day Moving Average',
+                'Price_MA_20': '📊 20-Day Moving Average', 
+                'Price_MA_50': '📊 50-Day Moving Average',
+                'MA_Ratio_5_20': '⚖️ Short vs Medium Term Trend',
+                'MA_Ratio_20_50': '⚖️ Medium vs Long Term Trend',
+                'Price_to_MA20': '🎯 Price Relative to 20-Day Average',
+                'Volatility_5': '📉 Short-term Price Volatility',
+                'Volatility_20': '📉 Medium-term Price Volatility',
+                'Volume_MA_20': '📊 20-Day Average Trading Volume',
+                'Volume_Ratio': '🔊 Current vs Average Volume',
+                'RSI': '⚡ Relative Strength Index (Momentum)',
+                'RSI_Normalized': '⚡ Normalized Momentum Indicator',
+                'MACD': '🌊 MACD Trend Signal',
+                'MACD_Signal': '🌊 MACD Signal Line',
+                'MACD_Histogram': '🌊 MACD Histogram',
+                'BB_Upper': '📏 Bollinger Band Upper Limit',
+                'BB_Lower': '📏 Bollinger Band Lower Limit', 
+                'BB_Position': '📍 Position within Bollinger Bands',
+                'Returns_Lag_1': '📈 Yesterday\'s Price Change',
+                'Returns_Lag_2': '📈 2-Day Ago Price Change',
+                'Returns_Lag_3': '📈 3-Day Ago Price Change',
+                'Returns_Lag_5': '📈 5-Day Ago Price Change',
+                'Volume_Ratio_Lag_1': '🔊 Yesterday\'s Volume Pattern',
+                'Volume_Ratio_Lag_2': '🔊 2-Day Ago Volume Pattern',
+                'Volume_Ratio_Lag_3': '🔊 3-Day Ago Volume Pattern',
+                'Volume_Ratio_Lag_5': '🔊 5-Day Ago Volume Pattern'
+            }
             
             importance_df = pd.DataFrame({
                 'Feature': predictor.feature_columns,
                 'Importance': predictor.model.feature_importances_
             }).sort_values('Importance', ascending=False).head(10)
             
+            # Add user-friendly descriptions
+            importance_df['Description'] = importance_df['Feature'].map(feature_descriptions)
+            # Fill any missing descriptions with the original feature name
+            importance_df['Description'] = importance_df['Description'].fillna(importance_df['Feature'])
+            
+            # Convert importance to percentage for better understanding
+            importance_df['Importance_Percent'] = (importance_df['Importance'] * 100).round(1)
+            
             fig_importance = px.bar(
                 importance_df,
-                x='Importance',
-                y='Feature',
+                x='Importance_Percent',
+                y='Description',
                 orientation='h',
-                title='Top 10 Most Important Features'
+                title='🧠 Top 10 Factors Influencing AI Predictions',
+                labels={'Importance_Percent': 'Influence on Predictions (%)', 'Description': 'Market Factor'},
+                color='Importance_Percent',
+                color_continuous_scale='viridis'
             )
-            fig_importance.update_layout(height=400)
+            fig_importance.update_layout(
+                height=500,
+                showlegend=False,
+                yaxis={'categoryorder': 'total ascending'}
+            )
             st.plotly_chart(fig_importance, use_container_width=True)
+            
+            # Add explanation text
+            st.info("""
+            💡 **What does this mean?**
+            - The bars show which market factors the AI considers most important when making predictions
+            - Higher percentages mean the AI relies more heavily on that factor
+            - These insights help you understand what drives the stock's price movements
+            """)
+            
+            # Show a detailed table for more information
+            with st.expander("📋 View Detailed Feature Analysis"):
+                display_df = importance_df[['Description', 'Importance_Percent', 'Feature']].copy()
+                display_df.columns = ['Market Factor', 'Influence (%)', 'Technical Name']
+                display_df.index = range(1, len(display_df) + 1)
+                st.dataframe(display_df, use_container_width=True)
         
-        # Enhanced weekly predictions table
-        st.subheader("📅 Detailed Prediction Timeline")
+        # Enhanced weekly predictions table with beginner explanations
+        st.markdown("### 📅 Your Personal Investment Calendar")
+        st.markdown("*Week-by-week predictions to help you plan your investment strategy*")
+        
+        with st.expander("💡 How to use this calendar"):
+            st.markdown("""
+            **Week**: Which week we're predicting for
+            **Date**: The exact date of the prediction
+            **Target Price**: What our AI thinks the stock will cost
+            **Price Change**: How much money you could gain/lose per share
+            **Percentage**: The percentage return on your investment
+            **Signal**: Our recommendation for that time period
+            **Days from Now**: How many days until that prediction
+            
+            💡 **Pro Tip**: Look for patterns! If several weeks show green signals, it might indicate a good trend.
+            """)
         
         # Create comprehensive prediction table
         weekly_predictions = predictions.iloc[::7].head(8)  # Every 7 days
@@ -805,7 +1057,7 @@ def main():
         weekly_changes = [((price - current_price) / current_price * 100) for price in weekly_predictions['Predicted_Price']]
         weekly_profits = [(price - current_price) for price in weekly_predictions['Predicted_Price']]
         
-        # Create signals based on change
+        # Create signals based on change with beginner-friendly language
         signals = []
         for change in weekly_changes:
             if change > 5:
@@ -844,38 +1096,41 @@ def main():
         
         st.dataframe(style_dataframe(weekly_df), use_container_width=True)
         
-        # Add prediction milestones
-        st.subheader("🎯 Key Prediction Milestones")
+        # Add prediction milestones with explanations
+        st.markdown("### 🎯 Key Investment Milestones")
+        st.markdown("*Quick overview of important dates and price targets*")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("**📅 Next Week Prediction**")
+            st.markdown("**📅 Next Week Target**")
             next_week_price = predictions['Predicted_Price'].iloc[6] if len(predictions) > 6 else predictions['Predicted_Price'].iloc[-1]
             next_week_change = (next_week_price - current_price) / current_price * 100
             next_week_date = predictions['Date'].iloc[6] if len(predictions) > 6 else predictions['Date'].iloc[-1]
             
             st.metric(
-                label=f"Target for {next_week_date.strftime('%b %d')}",
+                label=f"Price by {next_week_date.strftime('%b %d')}",
                 value=f"${next_week_price:.2f}",
-                delta=f"{next_week_change:+.1f}%"
+                delta=f"{next_week_change:+.1f}%",
+                help="💡 Short-term prediction - good for quick decisions"
             )
         
         with col2:
-            st.markdown("**📅 One Month Prediction**")
+            st.markdown("**📅 One Month Outlook**")
             one_month_idx = min(29, len(predictions) - 1)
             one_month_price = predictions['Predicted_Price'].iloc[one_month_idx]
             one_month_change = (one_month_price - current_price) / current_price * 100
             one_month_date = predictions['Date'].iloc[one_month_idx]
             
             st.metric(
-                label=f"Target for {one_month_date.strftime('%b %d')}",
+                label=f"Price by {one_month_date.strftime('%b %d')}",
                 value=f"${one_month_price:.2f}",
-                delta=f"{one_month_change:+.1f}%"
+                delta=f"{one_month_change:+.1f}%",
+                help="💡 Medium-term prediction - good for planning investments"
             )
         
         with col3:
-            st.markdown("**📅 Best Predicted Price**")
+            st.markdown("**📅 Highest Predicted Price**")
             best_price = predictions['Predicted_Price'].max()
             best_idx = predictions['Predicted_Price'].idxmax()
             best_date = predictions['Date'].iloc[best_idx]
@@ -884,11 +1139,13 @@ def main():
             st.metric(
                 label=f"Peak on {best_date.strftime('%b %d')}",
                 value=f"${best_price:.2f}",
-                delta=f"{best_change:+.1f}%"
+                delta=f"{best_change:+.1f}%",
+                help="💡 Best potential outcome in our prediction period"
             )
         
-        # Download predictions
-        st.subheader("💾 Download Results")
+        # Download predictions with user-friendly explanation
+        st.markdown("### 💾 Take Your Analysis With You")
+        st.markdown("*Download your complete analysis to review later or share with others*")
         
         # Prepare download data
         download_data = predictions.copy()
@@ -907,64 +1164,41 @@ def main():
             mime="text/csv"
         )
         
-        # Disclaimer
+        # Disclaimer with beginner-friendly language
         st.markdown("---")
         st.warning("""
-        ⚠️ **Important Disclaimer**: 
-        This analysis is for educational purposes only. Past performance does not guarantee future results. 
-        The AI model's predictions are based on historical patterns and may not reflect actual future prices. 
-        Always conduct your own research and consider consulting with a financial advisor before making investment decisions.
+        ⚠️ **Important: Please Read Before Investing** 
+        
+        🎓 **This is an Educational Tool**: This app is designed to help you learn about stock analysis, not to tell you what to buy or sell.
+        
+        🤖 **AI Limitations**: Our AI is very smart, but it can't predict the future perfectly. Stock prices can be affected by news, company changes, and many other factors.
+        
+        💡 **Always Do Your Own Research**: 
+        - Read about the company and its business
+        - Check recent news and earnings reports
+        - Consider talking to a financial advisor
+        - Never invest money you can't afford to lose
+        
+        📚 **Remember**: This tool shows you patterns and possibilities, but the final investment decision is always yours!
         """)
     
     else:
-        # Welcome message
-        st.info("""
-        👋 **Welcome to the AI Stock Market Predictor!**
+        # Simple instruction message
+        st.markdown("""
+        ### 📊 Welcome to Smart Stock Analyzer
         
-        This advanced application uses machine learning to analyze stocks and generate predictions based on:
-        - 📊 Technical indicators (RSI, MACD, Bollinger Bands)
-        - 🤖 Ensemble AI models (Random Forest, Gradient Boosting, Linear Regression)
-        - 📈 Price patterns and volume analysis
-        - 🔮 Time series forecasting
+        Select a stock symbol in the sidebar and click **"Start Analysis"** to begin your AI-powered stock analysis.
         
-        **How to use:**
-        1. Enter a stock symbol in the sidebar (e.g., AAPL, TSLA, MSFT)
-        2. Choose your analysis period and prediction timeframe
-        3. Click "Analyze Stock" to start the AI analysis
-        4. View interactive charts, predictions, and download results
-        
-        **Features:**
-        - Real-time stock data fetching
-        - Interactive Plotly charts
-        - AI model performance metrics
-        - Weekly price targets
-        - Downloadable predictions
+        **Need help getting started?** Check the expandable help section in the sidebar.
         """)
         
-        # Sample analysis showcase
-        st.subheader("🎯 Sample Features")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("""
-            **📊 Technical Analysis:**
-            - Moving averages (5, 20, 50-day)
-            - Relative Strength Index (RSI)
-            - MACD indicators
-            - Bollinger Bands
-            - Volume analysis
-            """)
-        
-        with col2:
-            st.markdown("""
-            **🤖 AI Predictions:**
-            - Ensemble machine learning models
-            - Time series cross-validation
-            - Feature importance analysis
-            - Confidence scoring
-            - Risk assessment
-            """)
+        # Show a simple centered call-to-action
+        st.markdown("""
+        <div style="text-align: center; padding: 2rem; background-color: #f0f2f6; border-radius: 10px; margin: 2rem 0;">
+            <h3>👈 Choose a stock symbol from the sidebar to get started</h3>
+            <p>Popular choices: AAPL, TSLA, MSFT, AMZN, GOOGL</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
