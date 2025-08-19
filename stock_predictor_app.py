@@ -1429,18 +1429,18 @@ def main():
     else:
         # Simple instruction message
         st.markdown("""
-        ### 📊 Welcome to Smart Stock Analyzer
-        
-        Select a stock symbol in the sidebar and click **"Start Analysis"** to begin your AI-powered stock analysis.
-        
-        **Need help getting started?** Check the expandable help section in the sidebar.
-        """)
+        <div style="background-color: #ffffff; padding: 1.5rem; border-radius: 10px; border-left: 5px solid #1E88E5; margin-bottom: 1rem;">
+            <h3 style="color: #1E88E5; margin-bottom: 1rem;">📊 Welcome to Smart Stock Analyzer</h3>
+            <p style="color: #333333; font-size: 1.1rem; margin-bottom: 0.5rem;">Select a stock symbol in the sidebar and click <strong>"Start Analysis"</strong> to begin your AI-powered stock analysis.</p>
+            <p style="color: #666666; font-size: 1rem;"><strong>Need help getting started?</strong> Check the expandable help section in the sidebar.</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Show a simple centered call-to-action
         st.markdown("""
-        <div style="text-align: center; padding: 2rem; background-color: #f0f2f6; border-radius: 10px; margin: 2rem 0;">
-            <h3>👈 Choose a stock symbol from the sidebar to get started</h3>
-            <p>Popular choices: AAPL, TSLA, MSFT, AMZN, GOOGL</p>
+        <div style="text-align: center; padding: 2rem; background-color: #ffffff; border: 2px solid #1E88E5; border-radius: 15px; margin: 2rem 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            <h3 style="color: #1E88E5; margin-bottom: 1rem;">👈 Choose a stock symbol from the sidebar to get started</h3>
+            <p style="color: #333333; font-size: 1.1rem; font-weight: 500;">Popular choices: AAPL, TSLA, MSFT, AMZN, GOOGL</p>
         </div>
         """, unsafe_allow_html=True)
 
