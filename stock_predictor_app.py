@@ -466,58 +466,138 @@ def create_weekly_targets_chart(predictions, current_price, symbol):
     
     return fig
 
-def create_risk_return_gauge(predictions, current_price, volatility):
-    """Create risk-return gauge chart"""
+def create_risk_return_gauge(predictions, current_price, volatility, data=None, prediction_days=30):
+    """Create enhanced risk-return gauge chart with more accurate metrics"""
     if predictions is None:
         return None
     
-    # Calculate metrics
+    # Calculate more accurate return metrics
     final_return = (predictions['Predicted_Price'].iloc[-1] - current_price) / current_price * 100
     max_return = (predictions['Predicted_Price'].max() - current_price) / current_price * 100
     min_return = (predictions['Predicted_Price'].min() - current_price) / current_price * 100
     
-    # Risk score (higher volatility = higher risk)
-    risk_score = min(100, volatility * 5)  # Scale volatility to 0-100
+    # Calculate probability of positive return
+    positive_predictions = (predictions['Predicted_Price'] > current_price).sum()
+    probability_of_gain = (positive_predictions / len(predictions)) * 100
     
+    # Calculate Value at Risk (VaR) - 5% worst case scenario
+    returns_distribution = predictions['Predicted_Price'].pct_change().dropna()
+    if len(returns_distribution) > 0:
+        var_5_percent = np.percentile(returns_distribution, 5) * 100
+    else:
+        var_5_percent = min_return
+    
+    # Enhanced risk calculation using multiple factors
+    if data is not None:
+        # Historical volatility (annualized)
+        historical_vol = data['Returns'].std() * np.sqrt(252) * 100 if 'Returns' in data.columns else volatility
+        
+        # Maximum drawdown calculation
+        rolling_max = data['Close'].expanding().max()
+        drawdown = (data['Close'] - rolling_max) / rolling_max * 100
+        max_drawdown = abs(drawdown.min())
+        
+        # Sharpe ratio approximation (using 2% risk-free rate)
+        avg_return = data['Returns'].mean() * 252 * 100 if 'Returns' in data.columns else 0
+        sharpe_ratio = (avg_return - 2) / historical_vol if historical_vol > 0 else 0
+        
+        # Combined risk score (0-100)
+        volatility_score = min(50, historical_vol * 1.5)  # Cap at 50
+        drawdown_score = min(30, max_drawdown * 1.2)      # Cap at 30
+        prediction_uncertainty = min(20, abs(max_return - min_return) * 0.5)  # Cap at 20
+        
+        risk_score = min(100, volatility_score + drawdown_score + prediction_uncertainty)
+    else:
+        risk_score = min(100, volatility * 5)
+        sharpe_ratio = 0
+        max_drawdown = 0
+    
+    # Create enhanced subplot layout
     fig = make_subplots(
-        rows=1, cols=2,
-        specs=[[{'type': 'indicator'}, {'type': 'indicator'}]],
-        subplot_titles=['Expected Return', 'Risk Level']
+        rows=2, cols=2,
+        specs=[[{'type': 'indicator'}, {'type': 'indicator'}],
+               [{'type': 'indicator'}, {'type': 'indicator'}]],
+        subplot_titles=['Expected Return', 'Risk Level', 'Success Probability', 'Risk-Adjusted Return']
     )
     
-    # Return gauge
+    # Expected Return gauge (dynamic range based on predictions)
+    return_range = max(50, abs(max_return) * 1.5, abs(min_return) * 1.5)
     fig.add_trace(go.Indicator(
         mode="gauge+number+delta",
         value=final_return,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "30-Day Return (%)"},
+        title={'text': f"{prediction_days}-Day Return (%)"},
         delta={'reference': 0},
-        gauge={'axis': {'range': [None, 50]},
+        gauge={'axis': {'range': [-return_range, return_range]},
                'bar': {'color': "green" if final_return > 0 else "red"},
                'steps': [
-                   {'range': [0, 10], 'color': "lightgray"},
-                   {'range': [10, 25], 'color': "gray"}],
-               'threshold': {'line': {'color': "red", 'width': 4},
-                           'thickness': 0.75, 'value': 20}}), row=1, col=1)
+                   {'range': [-return_range, -5], 'color': "lightcoral"},
+                   {'range': [-5, 5], 'color': "lightgray"},
+                   {'range': [5, return_range], 'color': "lightgreen"}],
+               'threshold': {'line': {'color': "blue", 'width': 3},
+                           'thickness': 0.75, 'value': 0}}), row=1, col=1)
     
-    # Risk gauge
+    # Enhanced Risk gauge
     fig.add_trace(go.Indicator(
         mode="gauge+number",
         value=risk_score,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "Risk Score (0-100)"},
-        gauge={'axis': {'range': [None, 100]},
-               'bar': {'color': "orange"},
+        title={'text': "Comprehensive Risk Score"},
+        gauge={'axis': {'range': [0, 100]},
+               'bar': {'color': "red" if risk_score > 70 else "orange" if risk_score > 40 else "green"},
                'steps': [
-                   {'range': [0, 30], 'color': "lightgreen"},
-                   {'range': [30, 70], 'color': "yellow"},
-                   {'range': [70, 100], 'color': "lightcoral"}],
-               'threshold': {'line': {'color': "red", 'width': 4},
+                   {'range': [0, 25], 'color': "lightgreen"},
+                   {'range': [25, 50], 'color': "yellow"},
+                   {'range': [50, 75], 'color': "orange"},
+                   {'range': [75, 100], 'color': "lightcoral"}],
+               'threshold': {'line': {'color': "darkred", 'width': 4},
                            'thickness': 0.75, 'value': 80}}), row=1, col=2)
     
-    fig.update_layout(height=300, title_text="📊 Risk & Return Analysis")
+    # Success Probability gauge
+    fig.add_trace(go.Indicator(
+        mode="gauge+number",
+        value=probability_of_gain,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Probability of Profit (%)"},
+        gauge={'axis': {'range': [0, 100]},
+               'bar': {'color': "green" if probability_of_gain > 60 else "orange" if probability_of_gain > 40 else "red"},
+               'steps': [
+                   {'range': [0, 30], 'color': "lightcoral"},
+                   {'range': [30, 50], 'color': "yellow"},
+                   {'range': [50, 70], 'color': "lightgreen"},
+                   {'range': [70, 100], 'color': "green"}],
+               'threshold': {'line': {'color': "blue", 'width': 3},
+                           'thickness': 0.75, 'value': 50}}), row=2, col=1)
     
-    return fig
+    # Risk-Adjusted Return (Sharpe Ratio visualization)
+    sharpe_display = max(-3, min(3, sharpe_ratio))  # Clamp between -3 and 3
+    fig.add_trace(go.Indicator(
+        mode="gauge+number",
+        value=sharpe_display,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Sharpe Ratio (Risk-Adjusted)"},
+        gauge={'axis': {'range': [-3, 3]},
+               'bar': {'color': "green" if sharpe_display > 1 else "orange" if sharpe_display > 0 else "red"},
+               'steps': [
+                   {'range': [-3, 0], 'color': "lightcoral"},
+                   {'range': [0, 1], 'color': "yellow"},
+                   {'range': [1, 2], 'color': "lightgreen"},
+                   {'range': [2, 3], 'color': "green"}],
+               'threshold': {'line': {'color': "blue", 'width': 3},
+                           'thickness': 0.75, 'value': 1}}), row=2, col=2)
+    
+    fig.update_layout(height=500, title_text="📊 Advanced Risk & Return Analysis")
+    
+    return fig, {
+        'expected_return': final_return,
+        'max_return': max_return,
+        'min_return': min_return,
+        'risk_score': risk_score,
+        'probability_of_gain': probability_of_gain,
+        'var_5_percent': var_5_percent,
+        'sharpe_ratio': sharpe_ratio,
+        'max_drawdown': max_drawdown if data is not None else 0
+    }
 
 def create_technical_indicators_chart(data):
     """Create technical indicators chart"""
