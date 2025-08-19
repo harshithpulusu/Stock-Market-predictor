@@ -466,6 +466,65 @@ def create_weekly_targets_chart(predictions, current_price, symbol):
     
     return fig
 
+def calculate_advanced_risk_metrics(data, predictions, current_price):
+    """Calculate comprehensive risk metrics for enhanced analysis"""
+    metrics = {}
+    
+    if data is not None and 'Returns' in data.columns:
+        returns = data['Returns'].dropna()
+        
+        # Historical metrics
+        metrics['historical_volatility'] = returns.std() * np.sqrt(252) * 100
+        metrics['avg_annual_return'] = returns.mean() * 252 * 100
+        
+        # Downside deviation (volatility of negative returns only)
+        negative_returns = returns[returns < 0]
+        metrics['downside_deviation'] = negative_returns.std() * np.sqrt(252) * 100 if len(negative_returns) > 0 else 0
+        
+        # Maximum drawdown calculation
+        cumulative_returns = (1 + returns).cumprod()
+        rolling_max = cumulative_returns.expanding().max()
+        drawdown = (cumulative_returns - rolling_max) / rolling_max
+        metrics['max_drawdown'] = abs(drawdown.min()) * 100
+        
+        # Sortino ratio (return per unit of downside risk)
+        if metrics['downside_deviation'] > 0:
+            metrics['sortino_ratio'] = (metrics['avg_annual_return'] - 2) / metrics['downside_deviation']
+        else:
+            metrics['sortino_ratio'] = 0
+        
+        # Calmar ratio (annual return / max drawdown)
+        if metrics['max_drawdown'] > 0:
+            metrics['calmar_ratio'] = metrics['avg_annual_return'] / metrics['max_drawdown']
+        else:
+            metrics['calmar_ratio'] = 0
+        
+        # VaR calculations (95% and 99% confidence)
+        metrics['var_95'] = np.percentile(returns, 5) * 100
+        metrics['var_99'] = np.percentile(returns, 1) * 100
+        
+        # Expected shortfall (average of worst 5% returns)
+        worst_5_percent = returns[returns <= np.percentile(returns, 5)]
+        metrics['expected_shortfall'] = worst_5_percent.mean() * 100 if len(worst_5_percent) > 0 else 0
+        
+    # Prediction-based metrics
+    if predictions is not None:
+        predicted_returns = (predictions['Predicted_Price'] / current_price - 1) * 100
+        metrics['prediction_volatility'] = predicted_returns.std()
+        metrics['prediction_skewness'] = predicted_returns.skew()
+        metrics['prediction_kurtosis'] = predicted_returns.kurtosis()
+        
+        # Probability metrics
+        metrics['prob_gain'] = (predicted_returns > 0).mean() * 100
+        metrics['prob_loss_5'] = (predicted_returns < -5).mean() * 100
+        metrics['prob_gain_10'] = (predicted_returns > 10).mean() * 100
+        
+        # Expected values
+        metrics['expected_gain'] = predicted_returns[predicted_returns > 0].mean() if (predicted_returns > 0).any() else 0
+        metrics['expected_loss'] = predicted_returns[predicted_returns < 0].mean() if (predicted_returns < 0).any() else 0
+    
+    return metrics
+
 def create_risk_return_gauge(predictions, current_price, volatility, data=None, prediction_days=30):
     """Create enhanced risk-return gauge chart with more accurate metrics"""
     if predictions is None:
@@ -944,27 +1003,132 @@ def main():
                 st.info("📊 Chart will appear here after analysis")
         
         # Risk-Return Analysis with explanation
-        st.markdown("### ⚖️ Investment Risk Assessment")
-        st.markdown("*Understanding the risk vs reward potential*")
+        st.markdown("### ⚖️ Advanced Investment Risk Assessment")
+        st.markdown("*Comprehensive analysis of risk vs reward potential using professional financial metrics*")
         
         volatility = enhanced_data['Returns'].std() * np.sqrt(252) * 100
-        risk_return_chart = create_risk_return_gauge(predictions, current_price, volatility)
-        if risk_return_chart:
+        risk_return_result = create_risk_return_gauge(predictions, current_price, volatility, enhanced_data, prediction_days)
+        
+        if risk_return_result:
+            risk_return_chart, risk_metrics = risk_return_result
             st.plotly_chart(risk_return_chart, use_container_width=True)
             
-            # Add risk explanation
-            if volatility > 40:
-                risk_explanation = "🌋 **High Risk**: This stock's price changes a lot - could gain or lose significant value quickly!"
-            elif volatility > 25:
-                risk_explanation = "🌊 **Medium-High Risk**: Expect some ups and downs, but manageable for experienced investors"
-            elif volatility > 15:
-                risk_explanation = "📊 **Moderate Risk**: Reasonable price stability with some normal fluctuations"
-            else:
-                risk_explanation = "🏔️ **Lower Risk**: This stock tends to be more stable and predictable"
+            # Display key metrics in columns
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    "Expected Return",
+                    f"{risk_metrics['expected_return']:.1f}%",
+                    help="💡 The predicted return for your investment period"
+                )
                 
-            st.info(f"💡 **Risk Level Explanation**: {risk_explanation}")
+            with col2:
+                st.metric(
+                    "Success Probability", 
+                    f"{risk_metrics['probability_of_gain']:.0f}%",
+                    help="💡 Likelihood that the investment will be profitable"
+                )
+                
+            with col3:
+                st.metric(
+                    "Worst Case (5% VaR)",
+                    f"{risk_metrics['var_5_percent']:.1f}%",
+                    help="💡 5% chance of losing more than this amount"
+                )
+                
+            with col4:
+                st.metric(
+                    "Risk-Adjusted Score",
+                    f"{risk_metrics['sharpe_ratio']:.2f}",
+                    help="💡 Return per unit of risk (higher is better)"
+                )
+            
+            # Enhanced risk explanation based on multiple factors
+            risk_score = risk_metrics['risk_score']
+            if risk_score > 75:
+                risk_explanation = "� **Very High Risk**: Extreme volatility with significant potential for large gains or losses. Only suitable for experienced investors with high risk tolerance."
+            elif risk_score > 60:
+                risk_explanation = "🔥 **High Risk**: Substantial price swings expected. Potential for good returns but also significant losses. Requires careful monitoring."
+            elif risk_score > 40:
+                risk_explanation = "🌊 **Medium Risk**: Moderate price fluctuations with balanced risk-reward profile. Suitable for most investors with some experience."
+            elif risk_score > 25:
+                risk_explanation = "📊 **Low-Medium Risk**: Relatively stable with occasional fluctuations. Good for conservative growth strategies."
+            else:
+                risk_explanation = "🏔️ **Low Risk**: Very stable price movements with predictable patterns. Ideal for conservative investors."
+            
+            # Add probability-based recommendation
+            prob_gain = risk_metrics['probability_of_gain']
+            if prob_gain > 70:
+                probability_text = "🎯 **High confidence** in positive outcomes"
+            elif prob_gain > 50:
+                probability_text = "⚖️ **Moderate confidence** - balanced probability"
+            else:
+                probability_text = "⚠️ **Low confidence** - higher chance of losses"
+                
+            st.info(f"💡 **Risk Assessment**: {risk_explanation}")
+            st.info(f"🎲 **Success Likelihood**: {probability_text}")
+            
+            # Add advanced risk metrics explanation
+            with st.expander("🎓 Understanding Advanced Risk Metrics"):
+                st.markdown(f"""
+                **Comprehensive Risk Score ({risk_score:.0f}/100)**: Combines multiple risk factors:
+                - Historical volatility patterns
+                - Maximum historical losses (drawdown)
+                - Prediction uncertainty range
+                
+                **Success Probability ({prob_gain:.0f}%)**: Based on how many prediction scenarios show profits
+                - Above 70% = High confidence 🎯
+                - 50-70% = Moderate confidence ⚖️
+                - Below 50% = High uncertainty ⚠️
+                
+                **Value at Risk (VaR)**: There's a 5% chance you could lose more than {risk_metrics['var_5_percent']:.1f}%
+                
+                **Sharpe Ratio ({risk_metrics['sharpe_ratio']:.2f})**: Risk-adjusted return measure
+                - Above 1.0 = Good risk-adjusted returns ✅
+                - 0.5-1.0 = Acceptable returns 👍
+                - Below 0.5 = Poor risk-adjusted returns ⚠️
+                
+                **Maximum Drawdown**: Historical worst loss period was {risk_metrics['max_drawdown']:.1f}%
+                """)
+            
+            # Additional comprehensive risk analysis
+            st.markdown("#### 📊 Detailed Risk Analysis")
+            detailed_metrics = calculate_advanced_risk_metrics(enhanced_data, predictions, current_price)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**📈 Return Analysis**")
+                if 'avg_annual_return' in detailed_metrics:
+                    st.write(f"• Historical Annual Return: {detailed_metrics['avg_annual_return']:.1f}%")
+                st.write(f"• Expected Return Range: {risk_metrics['min_return']:.1f}% to {risk_metrics['max_return']:.1f}%")
+                if 'expected_gain' in detailed_metrics:
+                    st.write(f"• Average Gain (when positive): {detailed_metrics['expected_gain']:.1f}%")
+                    st.write(f"• Average Loss (when negative): {detailed_metrics['expected_loss']:.1f}%")
+                
+                st.markdown("**🎯 Probability Analysis**")
+                if 'prob_gain_10' in detailed_metrics:
+                    st.write(f"• Chance of >10% gain: {detailed_metrics['prob_gain_10']:.0f}%")
+                    st.write(f"• Chance of >5% loss: {detailed_metrics['prob_loss_5']:.0f}%")
+                st.write(f"• Overall success rate: {risk_metrics['probability_of_gain']:.0f}%")
+            
+            with col2:
+                st.markdown("**⚠️ Risk Measures**")
+                if 'downside_deviation' in detailed_metrics:
+                    st.write(f"• Downside Volatility: {detailed_metrics['downside_deviation']:.1f}%")
+                    st.write(f"• Sortino Ratio: {detailed_metrics['sortino_ratio']:.2f}")
+                if 'var_95' in detailed_metrics:
+                    st.write(f"• 1-Day VaR (95%): {detailed_metrics['var_95']:.2f}%")
+                    st.write(f"• Expected Shortfall: {detailed_metrics['expected_shortfall']:.2f}%")
+                
+                st.markdown("**📊 Risk-Adjusted Performance**")
+                if 'calmar_ratio' in detailed_metrics:
+                    st.write(f"• Calmar Ratio: {detailed_metrics['calmar_ratio']:.2f}")
+                st.write(f"• Sharpe Ratio: {risk_metrics['sharpe_ratio']:.2f}")
+                st.write(f"• Risk Score: {risk_score:.0f}/100")
         else:
-            st.info("📊 Risk analysis will appear here after analysis")
+            st.info("📊 Advanced risk analysis will appear here after analysis")
         
         # Technical indicators with beginner explanation
         st.markdown("### 📊 Market Signals & Indicators")
