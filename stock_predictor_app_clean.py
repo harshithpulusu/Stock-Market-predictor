@@ -13,6 +13,7 @@ import seaborn as sns
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+from plotly.subplots import make_subplots
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
@@ -22,20 +23,10 @@ import warnings
 import datetime as dt
 from io import StringIO
 import time
-import hashlib
-import pickle
-import os
-from concurrent.futures import ThreadPoolExecutor
-import functools
 
 warnings.filterwarnings('ignore')
 
-# Create cache directory if it doesn't exist
-CACHE_DIR = ".streamlit_cache"
-if not os.path.exists(CACHE_DIR):
-    os.makedirs(CACHE_DIR)
-
-# Page configuration with performance optimizations
+# Page configuration
 st.set_page_config(
     page_title="AI Stock Market Predictor",
     page_icon="📈",
@@ -83,63 +74,11 @@ st.markdown("""
         border-radius: 5px;
         margin: 1rem 0;
     }
-    /* Performance optimization: reduce animation overhead */
-    .stProgress > div > div > div > div {
-        background-image: linear-gradient(to right, #1E88E5, #42A5F5);
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# Efficiency optimization functions
-def create_cache_key(*args):
-    """Create a unique cache key from arguments"""
-    key_str = str(args)
-    return hashlib.md5(key_str.encode()).hexdigest()
-
-def load_from_cache(cache_key):
-    """Load data from disk cache"""
-    cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, 'rb') as f:
-                return pickle.load(f)
-        except:
-            return None
-    return None
-
-def save_to_cache(cache_key, data):
-    """Save data to disk cache"""
-    cache_path = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
-    try:
-        with open(cache_path, 'wb') as f:
-            pickle.dump(data, f)
-    except:
-        pass
-
-@st.cache_data(ttl=7200, max_entries=50)  # Cache for 2 hours, max 50 entries
-def get_cached_stock_data(symbol, period):
-    """Enhanced caching for stock data with longer TTL"""
-    try:
-        stock = yf.Ticker(symbol)
-        data = stock.history(period=period)
-        stock_info = stock.info
-        
-        if len(data) < 50:
-            raise ValueError("Insufficient data")
-            
-        return data, stock_info, True
-        
-    except Exception as e:
-        return None, None, False
-
-@st.cache_data(ttl=3600, max_entries=20)
-def get_cached_technical_features(data_hash):
-    """Cache technical feature calculations"""
-    # This will be called by create_technical_features
-    return None
-
 class StockPredictorApp:
-    """Optimized application class for stock prediction with enhanced caching"""
+    """Main application class for stock prediction"""
     
     def __init__(self):
         self.model = None
@@ -148,93 +87,75 @@ class StockPredictorApp:
         self.data = None
         self.predictions = None
         self.stock_info = None
-        self._model_cache = {}
         
-    def fetch_data(self, symbol, period="2y"):
-        """Fetch stock data with enhanced caching"""
-        # Use the cached function
-        return get_cached_stock_data(symbol, period)
-    
-    @functools.lru_cache(maxsize=10)
-    def _calculate_indicators_cached(self, data_tuple, length):
-        """Cache expensive indicator calculations"""
-        # Convert tuple back to series for calculations
-        closes = pd.Series(data_tuple)
-        
-        # RSI calculation
-        delta = closes.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi.iloc[-1] if not rsi.empty else 50
+    @st.cache_data(ttl=3600)  # Cache for 1 hour
+    def fetch_data(_self, symbol, period="2y"):
+        """Fetch stock data with caching"""
+        try:
+            stock = yf.Ticker(symbol)
+            data = stock.history(period=period)
+            stock_info = stock.info
+            
+            if len(data) < 50:
+                raise ValueError("Insufficient data")
+                
+            return data, stock_info, True
+            
+        except Exception as e:
+            return None, None, False
     
     def create_technical_features(self, data):
-        """Optimized technical indicators with caching"""
-        # Create cache key for this dataset
-        data_hash = create_cache_key(data['Close'].values.tobytes(), len(data))
-        
-        # Try to load from cache first
-        cached_result = load_from_cache(f"features_{data_hash}")
-        if cached_result is not None:
-            return cached_result
-        
+        """Create technical indicators"""
         df = data.copy()
         
-        # Vectorized operations for better performance
-        closes = df['Close']
-        volumes = df['Volume']
-        
-        # Price-based features (vectorized)
-        df['Returns'] = closes.pct_change()
-        df['Price_MA_5'] = closes.rolling(5, min_periods=1).mean()
-        df['Price_MA_20'] = closes.rolling(20, min_periods=1).mean()
-        df['Price_MA_50'] = closes.rolling(50, min_periods=1).mean()
+        # Price-based features
+        df['Returns'] = df['Close'].pct_change()
+        df['Price_MA_5'] = df['Close'].rolling(5).mean()
+        df['Price_MA_20'] = df['Close'].rolling(20).mean()
+        df['Price_MA_50'] = df['Close'].rolling(50).mean()
         
         # Moving average ratios
         df['MA_Ratio_5_20'] = df['Price_MA_5'] / df['Price_MA_20']
         df['MA_Ratio_20_50'] = df['Price_MA_20'] / df['Price_MA_50']
-        df['Price_to_MA20'] = closes / df['Price_MA_20']
+        df['Price_to_MA20'] = df['Close'] / df['Price_MA_20']
         
-        # Vectorized volatility features
-        returns = df['Returns']
-        df['Volatility_5'] = returns.rolling(5, min_periods=1).std()
-        df['Volatility_20'] = returns.rolling(20, min_periods=1).std()
+        # Volatility features
+        df['Volatility_5'] = df['Returns'].rolling(5).std()
+        df['Volatility_20'] = df['Returns'].rolling(20).std()
         
         # Volume features
-        df['Volume_MA_20'] = volumes.rolling(20, min_periods=1).mean()
-        df['Volume_Ratio'] = volumes / df['Volume_MA_20']
+        df['Volume_MA_20'] = df['Volume'].rolling(20).mean()
+        df['Volume_Ratio'] = df['Volume'] / df['Volume_MA_20']
         
-        # Optimized RSI calculation
-        delta = closes.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14, min_periods=1).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14, min_periods=1).mean()
+        # RSI
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
         df['RSI_Normalized'] = (df['RSI'] - 50) / 50
         
-        # Optimized MACD
-        ema_12 = closes.ewm(span=12, min_periods=1).mean()
-        ema_26 = closes.ewm(span=26, min_periods=1).mean()
+        # MACD
+        ema_12 = df['Close'].ewm(span=12).mean()
+        ema_26 = df['Close'].ewm(span=26).mean()
         df['MACD'] = ema_12 - ema_26
-        df['MACD_Signal'] = df['MACD'].ewm(span=9, min_periods=1).mean()
+        df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
         df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
         
-        # Optimized Bollinger Bands
-        bb_middle = closes.rolling(20, min_periods=1).mean()
-        bb_std = closes.rolling(20, min_periods=1).std()
+        # Bollinger Bands
+        bb_middle = df['Close'].rolling(20).mean()
+        bb_std = df['Close'].rolling(20).std()
         df['BB_Upper'] = bb_middle + (bb_std * 2)
         df['BB_Lower'] = bb_middle - (bb_std * 2)
-        df['BB_Position'] = (closes - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
+        df['BB_Position'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
         
-        # Vectorized lagged features
+        # Lagged features
         for lag in [1, 2, 3, 5]:
-            df[f'Returns_Lag_{lag}'] = returns.shift(lag)
+            df[f'Returns_Lag_{lag}'] = df['Returns'].shift(lag)
             df[f'Volume_Ratio_Lag_{lag}'] = df['Volume_Ratio'].shift(lag)
         
         # Target variable
-        df['Target'] = returns.shift(-1)
+        df['Target'] = df['Returns'].shift(-1)
         
         # Feature selection
         self.feature_columns = [
@@ -245,64 +166,40 @@ class StockPredictorApp:
             'Volume_Ratio_Lag_1', 'Volume_Ratio_Lag_2', 'Volume_Ratio_Lag_3'
         ]
         
-        # Save to cache
-        save_to_cache(f"features_{data_hash}", df)
-        
         return df
     
     def train_model(self, data):
-        """Optimized machine learning model training with parallel processing"""
-        # Create cache key for model training
-        features_hash = create_cache_key(
-            [data[col].values.tobytes() for col in self.feature_columns if col in data.columns],
-            len(data)
-        )
-        
-        # Check model cache first
-        cached_model = load_from_cache(f"model_{features_hash}")
-        if cached_model is not None:
-            self.model, self.scaler, model_results, best_name, best_score = cached_model
-            return model_results, best_name, best_score
-        
+        """Train machine learning models"""
         # Prepare data
         feature_data = data[self.feature_columns + ['Target']].dropna()
         X = feature_data[self.feature_columns]
         y = feature_data['Target']
         
-        # Optimized models with reduced complexity for faster training
+        # Models
         models = {
             'Random Forest': RandomForestRegressor(
-                n_estimators=50, max_depth=8, min_samples_split=10,
-                min_samples_leaf=5, random_state=42, n_jobs=-1  # Use all CPU cores
+                n_estimators=100, max_depth=10, min_samples_split=10,
+                min_samples_leaf=5, random_state=42
             ),
             'Gradient Boosting': GradientBoostingRegressor(
-                n_estimators=50, max_depth=5, learning_rate=0.15, random_state=42
+                n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42
             ),
-            'Linear Regression': LinearRegression(n_jobs=-1)
+            'Linear Regression': LinearRegression()
         }
         
-        # Reduced cross-validation for faster execution
-        tscv = TimeSeriesSplit(n_splits=3)  # Reduced from 5 to 3
+        # Cross-validation
+        tscv = TimeSeriesSplit(n_splits=5)
         best_score = -np.inf
         best_model = None
         best_name = ""
         
         model_results = {}
         
-        # Parallel model evaluation using ThreadPoolExecutor
-        def evaluate_model(name_model_pair):
-            name, model = name_model_pair
-            try:
-                cv_scores = cross_val_score(model, X, y, cv=tscv, scoring='r2', n_jobs=1)
-                return name, cv_scores.mean(), cv_scores.std(), model
-            except Exception as e:
-                return name, -1, 1, model
-        
-        # Use parallel processing for model evaluation
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            results = list(executor.map(evaluate_model, models.items()))
-        
-        for name, mean_score, std_score, model in results:
+        for name, model in models.items():
+            cv_scores = cross_val_score(model, X, y, cv=tscv, scoring='r2')
+            mean_score = cv_scores.mean()
+            std_score = cv_scores.std()
+            
             model_results[name] = {
                 'mean_score': mean_score,
                 'std_score': std_score,
@@ -319,10 +216,6 @@ class StockPredictorApp:
         best_model.fit(X_scaled, y)
         
         self.model = best_model
-        
-        # Cache the trained model
-        model_cache_data = (best_model, self.scaler, model_results, best_name, best_score)
-        save_to_cache(f"model_{features_hash}", model_cache_data)
         
         return model_results, best_name, best_score
     
@@ -360,38 +253,30 @@ class StockPredictorApp:
             'Predicted_Price': predictions
         })
 
-@st.cache_data(ttl=1800, max_entries=20)  # Cache charts for 30 minutes
-def create_interactive_charts(data_hash, recent_data_dict, predictions_dict, symbol):
-    """Create enhanced interactive Plotly charts with caching"""
-    
-    # Convert dictionaries back to DataFrames
-    recent_data = pd.DataFrame(recent_data_dict)
-    recent_data.index = pd.to_datetime(recent_data.index)
-    
-    predictions = pd.DataFrame(predictions_dict) if predictions_dict else None
-    if predictions is not None:
-        predictions['Date'] = pd.to_datetime(predictions['Date'])
+def create_interactive_charts(data, predictions, symbol):
+    """Create enhanced interactive Plotly charts with detailed predictions"""
     
     # Main price chart with predictions
     fig_main = go.Figure()
     
-    # Historical prices with optimized rendering
+    # Historical prices
+    recent_data = data.tail(100)
     fig_main.add_trace(go.Scatter(
         x=recent_data.index,
         y=recent_data['Close'],
         mode='lines',
         name='Historical Price',
-        line=dict(color='#1f77b4', width=2),  # Reduced line width for performance
+        line=dict(color='#1f77b4', width=3),
         hovertemplate='<b>Date</b>: %{x}<br><b>Price</b>: $%{y:.2f}<extra></extra>'
     ))
     
-    # Moving averages with optimized styling
+    # Moving averages with improved styling
     fig_main.add_trace(go.Scatter(
         x=recent_data.index,
         y=recent_data['Price_MA_20'],
         mode='lines',
         name='20-day MA',
-        line=dict(color='orange', width=1, dash='dash'),  # Thinner lines
+        line=dict(color='orange', width=2, dash='dash'),
         hovertemplate='<b>20-day MA</b>: $%{y:.2f}<extra></extra>'
     ))
     
@@ -401,23 +286,70 @@ def create_interactive_charts(data_hash, recent_data_dict, predictions_dict, sym
             y=recent_data['Price_MA_50'],
             mode='lines',
             name='50-day MA',
-            line=dict(color='purple', width=1, dash='dot'),
+            line=dict(color='purple', width=2, dash='dot'),
             hovertemplate='<b>50-day MA</b>: $%{y:.2f}<extra></extra>'
         ))
     
     # Enhanced predictions with confidence bands
     if predictions is not None:
-        current_price = recent_data['Close'].iloc[-1]
+        current_price = data['Close'].iloc[-1]
         
-        # Simplified prediction line for performance
+        # Main prediction line
         fig_main.add_trace(go.Scatter(
             x=predictions['Date'],
             y=predictions['Predicted_Price'],
             mode='lines+markers',
             name='🔮 AI Predictions',
-            line=dict(color='red', width=2),
-            marker=dict(size=4, color='red'),  # Smaller markers
-            hovertemplate='<b>Predicted Date</b>: %{x}<br><b>Predicted Price</b>: $%{y:.2f}<extra></extra>'
+            line=dict(color='red', width=3),
+            marker=dict(size=6, color='red'),
+            hovertemplate='<b>Predicted Date</b>: %{x}<br><b>Predicted Price</b>: $%{y:.2f}<br><b>Change</b>: %{customdata:.1f}%<extra></extra>',
+            customdata=[(price - current_price) / current_price * 100 for price in predictions['Predicted_Price']]
+        ))
+        
+        # Add confidence bands (±10% volatility estimate)
+        volatility = data['Returns'].std() * 100 if 'Returns' in data.columns else data['Close'].pct_change().std() * 100
+        upper_bound = predictions['Predicted_Price'] * (1 + volatility/100)
+        lower_bound = predictions['Predicted_Price'] * (1 - volatility/100)
+        
+        # Upper confidence band
+        fig_main.add_trace(go.Scatter(
+            x=predictions['Date'],
+            y=upper_bound,
+            mode='lines',
+            name='Upper Confidence',
+            line=dict(color='rgba(255,0,0,0.3)', width=1),
+            hoverinfo='skip',
+            showlegend=False
+        ))
+        
+        # Lower confidence band (with fill)
+        fig_main.add_trace(go.Scatter(
+            x=predictions['Date'],
+            y=lower_bound,
+            mode='lines',
+            name='Confidence Band',
+            line=dict(color='rgba(255,0,0,0.3)', width=1),
+            fill='tonexty',
+            fillcolor='rgba(255,0,0,0.1)',
+            hoverinfo='skip'
+        ))
+        
+        # Add milestone markers for key prediction dates
+        weekly_dates = predictions[::7]['Date']  # Every 7 days
+        weekly_prices = predictions[::7]['Predicted_Price']
+        
+        fig_main.add_trace(go.Scatter(
+            x=weekly_dates,
+            y=weekly_prices,
+            mode='markers',
+            name='Weekly Milestones',
+            marker=dict(
+                size=12,
+                color='gold',
+                symbol='star',
+                line=dict(color='darkgoldenrod', width=2)
+            ),
+            hovertemplate='<b>Week %{pointNumber + 1} Target</b><br><b>Date</b>: %{x}<br><b>Price</b>: $%{y:.2f}<extra></extra>'
         ))
         
         # Add current price line
@@ -429,16 +361,20 @@ def create_interactive_charts(data_hash, recent_data_dict, predictions_dict, sym
             annotation_position="bottom right"
         )
     
-    # Optimized layout
     fig_main.update_layout(
-        title=f'📈 {symbol} - Price Analysis & AI Predictions',
+        title=f'📈 {symbol} - Advanced Price Analysis & AI Predictions',
         xaxis_title='Date',
         yaxis_title='Price ($)',
         hovermode='x unified',
-        height=500,  # Reduced height for performance
+        height=600,
         template='plotly_white',
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
     )
     
     return fig_main
@@ -530,197 +466,58 @@ def create_weekly_targets_chart(predictions, current_price, symbol):
     
     return fig
 
-def calculate_advanced_risk_metrics(data, predictions, current_price):
-    """Calculate comprehensive risk metrics for enhanced analysis"""
-    metrics = {}
-    
-    if data is not None and 'Returns' in data.columns:
-        returns = data['Returns'].dropna()
-        
-        # Historical metrics
-        metrics['historical_volatility'] = returns.std() * np.sqrt(252) * 100
-        metrics['avg_annual_return'] = returns.mean() * 252 * 100
-        
-        # Downside deviation (volatility of negative returns only)
-        negative_returns = returns[returns < 0]
-        metrics['downside_deviation'] = negative_returns.std() * np.sqrt(252) * 100 if len(negative_returns) > 0 else 0
-        
-        # Maximum drawdown calculation
-        cumulative_returns = (1 + returns).cumprod()
-        rolling_max = cumulative_returns.expanding().max()
-        drawdown = (cumulative_returns - rolling_max) / rolling_max
-        metrics['max_drawdown'] = abs(drawdown.min()) * 100
-        
-        # Sortino ratio (return per unit of downside risk)
-        if metrics['downside_deviation'] > 0:
-            metrics['sortino_ratio'] = (metrics['avg_annual_return'] - 2) / metrics['downside_deviation']
-        else:
-            metrics['sortino_ratio'] = 0
-        
-        # Calmar ratio (annual return / max drawdown)
-        if metrics['max_drawdown'] > 0:
-            metrics['calmar_ratio'] = metrics['avg_annual_return'] / metrics['max_drawdown']
-        else:
-            metrics['calmar_ratio'] = 0
-        
-        # VaR calculations (95% and 99% confidence)
-        metrics['var_95'] = np.percentile(returns, 5) * 100
-        metrics['var_99'] = np.percentile(returns, 1) * 100
-        
-        # Expected shortfall (average of worst 5% returns)
-        worst_5_percent = returns[returns <= np.percentile(returns, 5)]
-        metrics['expected_shortfall'] = worst_5_percent.mean() * 100 if len(worst_5_percent) > 0 else 0
-        
-    # Prediction-based metrics
-    if predictions is not None:
-        predicted_returns = (predictions['Predicted_Price'] / current_price - 1) * 100
-        metrics['prediction_volatility'] = predicted_returns.std()
-        metrics['prediction_skewness'] = predicted_returns.skew()
-        metrics['prediction_kurtosis'] = predicted_returns.kurtosis()
-        
-        # Probability metrics
-        metrics['prob_gain'] = (predicted_returns > 0).mean() * 100
-        metrics['prob_loss_5'] = (predicted_returns < -5).mean() * 100
-        metrics['prob_gain_10'] = (predicted_returns > 10).mean() * 100
-        
-        # Expected values
-        metrics['expected_gain'] = predicted_returns[predicted_returns > 0].mean() if (predicted_returns > 0).any() else 0
-        metrics['expected_loss'] = predicted_returns[predicted_returns < 0].mean() if (predicted_returns < 0).any() else 0
-    
-    return metrics
-
-def create_risk_return_gauge(predictions, current_price, volatility, data=None, prediction_days=30):
-    """Create enhanced risk-return gauge chart with more accurate metrics"""
+def create_risk_return_gauge(predictions, current_price, volatility):
+    """Create risk-return gauge chart"""
     if predictions is None:
         return None
     
-    # Calculate more accurate return metrics
+    # Calculate metrics
     final_return = (predictions['Predicted_Price'].iloc[-1] - current_price) / current_price * 100
     max_return = (predictions['Predicted_Price'].max() - current_price) / current_price * 100
     min_return = (predictions['Predicted_Price'].min() - current_price) / current_price * 100
     
-    # Calculate probability of positive return
-    positive_predictions = (predictions['Predicted_Price'] > current_price).sum()
-    probability_of_gain = (positive_predictions / len(predictions)) * 100
+    # Risk score (higher volatility = higher risk)
+    risk_score = min(100, volatility * 5)  # Scale volatility to 0-100
     
-    # Calculate Value at Risk (VaR) - 5% worst case scenario
-    returns_distribution = predictions['Predicted_Price'].pct_change().dropna()
-    if len(returns_distribution) > 0:
-        var_5_percent = np.percentile(returns_distribution, 5) * 100
-    else:
-        var_5_percent = min_return
-    
-    # Enhanced risk calculation using multiple factors
-    if data is not None:
-        # Historical volatility (annualized)
-        historical_vol = data['Returns'].std() * np.sqrt(252) * 100 if 'Returns' in data.columns else volatility
-        
-        # Maximum drawdown calculation
-        rolling_max = data['Close'].expanding().max()
-        drawdown = (data['Close'] - rolling_max) / rolling_max * 100
-        max_drawdown = abs(drawdown.min())
-        
-        # Sharpe ratio approximation (using 2% risk-free rate)
-        avg_return = data['Returns'].mean() * 252 * 100 if 'Returns' in data.columns else 0
-        sharpe_ratio = (avg_return - 2) / historical_vol if historical_vol > 0 else 0
-        
-        # Combined risk score (0-100)
-        volatility_score = min(50, historical_vol * 1.5)  # Cap at 50
-        drawdown_score = min(30, max_drawdown * 1.2)      # Cap at 30
-        prediction_uncertainty = min(20, abs(max_return - min_return) * 0.5)  # Cap at 20
-        
-        risk_score = min(100, volatility_score + drawdown_score + prediction_uncertainty)
-    else:
-        risk_score = min(100, volatility * 5)
-        sharpe_ratio = 0
-        max_drawdown = 0
-    
-    # Create enhanced subplot layout
     fig = make_subplots(
-        rows=2, cols=2,
-        specs=[[{'type': 'indicator'}, {'type': 'indicator'}],
-               [{'type': 'indicator'}, {'type': 'indicator'}]],
-        subplot_titles=['Expected Return', 'Risk Level', 'Success Probability', 'Risk-Adjusted Return']
+        rows=1, cols=2,
+        specs=[[{'type': 'indicator'}, {'type': 'indicator'}]],
+        subplot_titles=['Expected Return', 'Risk Level']
     )
     
-    # Expected Return gauge (dynamic range based on predictions)
-    return_range = max(50, abs(max_return) * 1.5, abs(min_return) * 1.5)
+    # Return gauge
     fig.add_trace(go.Indicator(
         mode="gauge+number+delta",
         value=final_return,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': f"{prediction_days}-Day Return (%)"},
+        title={'text': "30-Day Return (%)"},
         delta={'reference': 0},
-        gauge={'axis': {'range': [-return_range, return_range]},
+        gauge={'axis': {'range': [None, 50]},
                'bar': {'color': "green" if final_return > 0 else "red"},
                'steps': [
-                   {'range': [-return_range, -5], 'color': "lightcoral"},
-                   {'range': [-5, 5], 'color': "lightgray"},
-                   {'range': [5, return_range], 'color': "lightgreen"}],
-               'threshold': {'line': {'color': "blue", 'width': 3},
-                           'thickness': 0.75, 'value': 0}}), row=1, col=1)
+                   {'range': [0, 10], 'color': "lightgray"},
+                   {'range': [10, 25], 'color': "gray"}],
+               'threshold': {'line': {'color': "red", 'width': 4},
+                           'thickness': 0.75, 'value': 20}}), row=1, col=1)
     
-    # Enhanced Risk gauge
+    # Risk gauge
     fig.add_trace(go.Indicator(
         mode="gauge+number",
         value=risk_score,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "Comprehensive Risk Score"},
-        gauge={'axis': {'range': [0, 100]},
-               'bar': {'color': "red" if risk_score > 70 else "orange" if risk_score > 40 else "green"},
+        title={'text': "Risk Score (0-100)"},
+        gauge={'axis': {'range': [None, 100]},
+               'bar': {'color': "orange"},
                'steps': [
-                   {'range': [0, 25], 'color': "lightgreen"},
-                   {'range': [25, 50], 'color': "yellow"},
-                   {'range': [50, 75], 'color': "orange"},
-                   {'range': [75, 100], 'color': "lightcoral"}],
-               'threshold': {'line': {'color': "darkred", 'width': 4},
+                   {'range': [0, 30], 'color': "lightgreen"},
+                   {'range': [30, 70], 'color': "yellow"},
+                   {'range': [70, 100], 'color': "lightcoral"}],
+               'threshold': {'line': {'color': "red", 'width': 4},
                            'thickness': 0.75, 'value': 80}}), row=1, col=2)
     
-    # Success Probability gauge
-    fig.add_trace(go.Indicator(
-        mode="gauge+number",
-        value=probability_of_gain,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "Probability of Profit (%)"},
-        gauge={'axis': {'range': [0, 100]},
-               'bar': {'color': "green" if probability_of_gain > 60 else "orange" if probability_of_gain > 40 else "red"},
-               'steps': [
-                   {'range': [0, 30], 'color': "lightcoral"},
-                   {'range': [30, 50], 'color': "yellow"},
-                   {'range': [50, 70], 'color': "lightgreen"},
-                   {'range': [70, 100], 'color': "green"}],
-               'threshold': {'line': {'color': "blue", 'width': 3},
-                           'thickness': 0.75, 'value': 50}}), row=2, col=1)
+    fig.update_layout(height=300, title_text="📊 Risk & Return Analysis")
     
-    # Risk-Adjusted Return (Sharpe Ratio visualization)
-    sharpe_display = max(-3, min(3, sharpe_ratio))  # Clamp between -3 and 3
-    fig.add_trace(go.Indicator(
-        mode="gauge+number",
-        value=sharpe_display,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "Sharpe Ratio (Risk-Adjusted)"},
-        gauge={'axis': {'range': [-3, 3]},
-               'bar': {'color': "green" if sharpe_display > 1 else "orange" if sharpe_display > 0 else "red"},
-               'steps': [
-                   {'range': [-3, 0], 'color': "lightcoral"},
-                   {'range': [0, 1], 'color': "yellow"},
-                   {'range': [1, 2], 'color': "lightgreen"},
-                   {'range': [2, 3], 'color': "green"}],
-               'threshold': {'line': {'color': "blue", 'width': 3},
-                           'thickness': 0.75, 'value': 1}}), row=2, col=2)
-    
-    fig.update_layout(height=500, title_text="📊 Advanced Risk & Return Analysis")
-    
-    return fig, {
-        'expected_return': final_return,
-        'max_return': max_return,
-        'min_return': min_return,
-        'risk_score': risk_score,
-        'probability_of_gain': probability_of_gain,
-        'var_5_percent': var_5_percent,
-        'sharpe_ratio': sharpe_ratio,
-        'max_drawdown': max_drawdown if data is not None else 0
-    }
+    return fig
 
 def create_technical_indicators_chart(data):
     """Create technical indicators chart"""
@@ -802,21 +599,13 @@ def create_technical_indicators_chart(data):
         return None
 
 def main():
-    # Performance monitoring
-    start_time = time.time()
-    
     # Simple app header
     st.markdown('<h1 class="main-header">🚀 Smart Stock Analyzer</h1>', unsafe_allow_html=True)
-    
-    # Add performance info in sidebar
-    with st.sidebar:
-        if 'last_analysis_time' in st.session_state:
-            st.info(f"⚡ Last analysis: {st.session_state.last_analysis_time:.1f}s")
     
     # Sidebar with beginner explanations
     st.sidebar.header("🎯 Get Started Here")
     
-    # Add beginner help section (collapsed by default for performance)
+    # Add beginner help section
     with st.sidebar.expander("❓ New to Stocks? Click Here!"):
         st.markdown("""
         **Stock Symbol**: A short code for a company (e.g., AAPL = Apple Inc.)
@@ -853,8 +642,8 @@ def main():
     period_display = st.sidebar.selectbox(
         "How much history to analyze?", 
         list(period_options.keys()), 
-        index=1,  # Default to 1 year for better performance
-        help="📊 More history = better AI predictions, but 1-2 years is usually optimal"
+        index=2,
+        help="📊 More history = better AI predictions, but 2 years is usually perfect"
     )
     period = period_options[period_display]
     
@@ -862,15 +651,9 @@ def main():
     st.sidebar.markdown("### 🔮 Prediction Timeline")
     prediction_days = st.sidebar.slider(
         "Predict how many days ahead?", 
-        7, 30, 15,  # Reduced max and default for performance
-        help="🎯 Shorter predictions are more accurate and faster to compute!"
+        7, 60, 30,
+        help="🎯 Shorter predictions are more accurate. 30 days is a good balance!"
     )
-    
-    # Advanced settings (collapsed by default)
-    with st.sidebar.expander("⚙️ Advanced Settings"):
-        enable_detailed_charts = st.checkbox("Enable detailed charts", value=True)
-        enable_risk_analysis = st.checkbox("Enable risk analysis", value=True)
-        enable_technical_indicators = st.checkbox("Enable technical indicators", value=False)  # Disabled by default
     
     # Analysis button
     analyze_button = st.sidebar.button("🚀 Start Analysis", type="primary")
@@ -888,20 +671,16 @@ def main():
     💡 **Remember**: This is analysis, not financial advice!
     """)
     
-    # Initialize predictor with session state for persistence
-    if 'predictor' not in st.session_state:
-        st.session_state.predictor = StockPredictorApp()
-    predictor = st.session_state.predictor
+    # Initialize predictor
+    predictor = StockPredictorApp()
     
     if analyze_button and symbol:
-        analysis_start = time.time()
-        
         # Progress bar with friendly messages
         progress_bar = st.progress(0)
         status_text = st.empty()
         
         # Fetch data
-        status_text.text("📊 Getting stock data from the market...")
+        status_text.text("📊 Getting stock data from the market... (This is like checking the stock's report card)")
         progress_bar.progress(20)
         
         data, stock_info, success = predictor.fetch_data(symbol, period)
@@ -914,36 +693,32 @@ def main():
         predictor.stock_info = stock_info
         
         # Create features
-        status_text.text("🔬 Analyzing price patterns and trends...")
+        status_text.text("🔬 Analyzing price patterns and trends... (Teaching our AI about this stock)")
         progress_bar.progress(40)
         
         enhanced_data = predictor.create_technical_features(data)
         
         # Train model
-        status_text.text("🤖 AI is learning from historical data...")
+        status_text.text("🤖 AI is learning from historical data... (Like studying years of stock behavior)")
         progress_bar.progress(60)
         
         model_results, best_model_name, best_score = predictor.train_model(enhanced_data)
         
         # Make predictions
-        status_text.text("🔮 Creating your personalized prediction...")
+        status_text.text("🔮 Creating your personalized prediction... (AI is making its best guess)")
         progress_bar.progress(80)
         
         predictions = predictor.make_predictions(enhanced_data, prediction_days)
         
         progress_bar.progress(100)
-        status_text.text("✅ Your analysis is ready!")
-        time.sleep(1)
+        status_text.text("✅ Your analysis is ready! Scroll down to see the results.")
+        time.sleep(2)
         progress_bar.empty()
         status_text.empty()
         
-        # Store analysis time
-        analysis_time = time.time() - analysis_start
-        st.session_state.last_analysis_time = analysis_time
-        
         # Display results with celebration
         st.balloons()
-        st.success(f"🎉 Analysis complete in {analysis_time:.1f}s! Here's what our AI found...")
+        st.success("🎉 Great! Your stock analysis is complete. Here's what our AI found...")
         
         # Company information with explanations
         st.markdown("### 🏢 About This Company")
@@ -951,11 +726,12 @@ def main():
         
         with col1:
             daily_change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100)
+            change_emoji = "📈" if daily_change > 0 else "📉" if daily_change < 0 else "➡️"
             st.metric(
                 "Today's Stock Price",
                 f"${data['Close'].iloc[-1]:.2f}",
                 f"{daily_change:+.2f}%",
-                help="💡 Current share price and daily change"
+                help="💡 This is what one share costs right now, and how much it changed since yesterday"
             )
         
         with col2:
@@ -964,7 +740,7 @@ def main():
             st.metric(
                 "Company Name", 
                 display_name,
-                help="🏢 The company you're analyzing"
+                help="🏢 The full name of the company you're analyzing"
             )
         
         with col3:
@@ -972,7 +748,7 @@ def main():
             st.metric(
                 "Business Type", 
                 sector,
-                help="🏭 Industry sector"
+                help="🏭 What kind of business this company is in (like Technology, Healthcare, etc.)"
             )
         
         # Prediction summary with beginner explanations
@@ -980,19 +756,25 @@ def main():
         predicted_price = predictions['Predicted_Price'].iloc[-1]
         expected_return = (predicted_price - current_price) / current_price * 100
         
-        st.markdown("### 🔮 AI Prediction Summary")
+        st.markdown("### 🔮 What Our AI Predicts")
+        st.markdown("*Based on analyzing historical patterns and market trends*")
         
         # Create recommendation box
         if expected_return > 10:
             recommendation = "🟢 **Strong Positive Signal** - AI sees good potential!"
+            rec_color = "green"
         elif expected_return > 2:
             recommendation = "🟢 **Positive Signal** - Looks promising!"
+            rec_color = "green"
         elif expected_return > -2:
             recommendation = "🟡 **Neutral Signal** - Wait and see approach"
+            rec_color = "orange"
         elif expected_return > -10:
             recommendation = "🟠 **Caution Signal** - Be careful"
+            rec_color = "orange"
         else:
             recommendation = "🔴 **Negative Signal** - AI suggests avoiding"
+            rec_color = "red"
         
         st.markdown(f"#### {recommendation}")
         
@@ -1003,7 +785,7 @@ def main():
                 f"Predicted Price ({prediction_days} days)",
                 f"${predicted_price:.2f}",
                 f"{expected_return:+.1f}%",
-                help=f"💡 AI prediction for {prediction_days} days ahead"
+                help=f"💡 If you bought at ${current_price:.2f} today, AI thinks it might be worth ${predicted_price:.2f} in {prediction_days} days"
             )
         
         with col2:
@@ -1013,7 +795,7 @@ def main():
                 "AI Confidence Level", 
                 f"{confidence:.0%}",
                 confidence_text,
-                help="💡 How confident our AI is"
+                help="💡 How sure our AI is about this prediction. Higher is better!"
             )
         
         with col3:
@@ -1023,71 +805,41 @@ def main():
                 "Risk Level", 
                 f"{volatility:.0f}%",
                 vol_text,
-                help="💡 Price volatility measure"
+                help="💡 How much this stock's price jumps around. Lower = more stable, Higher = more risky"
             )
         
         with col4:
             if expected_return > 5:
                 signal = "🟢 BUY SIGNAL"
+                signal_help = "AI thinks this might be a good time to consider buying"
             elif expected_return < -5:
                 signal = "🔴 SELL SIGNAL"
+                signal_help = "AI suggests this might not be the best time to buy"
             else:
                 signal = "🟡 HOLD/WAIT"
+                signal_help = "AI suggests waiting for a better opportunity"
             
-            st.metric("Action Suggestion", signal)
+            st.metric(
+                "Action Suggestion", 
+                signal,
+                help=f"💡 {signal_help}"
+            )
         
-        # Conditional rendering based on user preferences
-        if enable_detailed_charts:
-            # Main chart with optimized rendering
-            st.markdown("### � Interactive Stock Chart")
-            
-            recent_data = enhanced_data.tail(50)  # Reduced data for performance
-            
-            # Convert to serializable format for caching
-            recent_data_dict = {
-                'Close': recent_data['Close'].to_dict(),
-                'Price_MA_20': recent_data['Price_MA_20'].to_dict() if 'Price_MA_20' in recent_data.columns else {},
-                'Price_MA_50': recent_data['Price_MA_50'].to_dict() if 'Price_MA_50' in recent_data.columns else {}
-            }
-            recent_data_dict = {str(k): v for k, v in recent_data_dict.items()}
-            
-            predictions_dict = predictions.to_dict() if predictions is not None else None
-            if predictions_dict:
-                predictions_dict = {str(k): v for k, v in predictions_dict.items()}
-            
-            data_hash = create_cache_key(str(recent_data_dict), str(predictions_dict), symbol)
-            
-            main_chart = create_interactive_charts(data_hash, recent_data_dict, predictions_dict, symbol)
-            st.plotly_chart(main_chart, use_container_width=True, key="main_price_chart")
+        # Main chart with explanation
+        st.markdown("### 📊 Interactive Stock Chart")
+        st.markdown("*This chart shows the stock's price history and our AI's predictions*")
         
-        # Conditional risk analysis
-        if enable_risk_analysis:
-            # Risk-Return Analysis with explanation
-            st.markdown("### ⚖️ Advanced Investment Risk Assessment")
-            st.markdown("*Comprehensive risk analysis using professional financial metrics*")
-            
-            volatility = enhanced_data['Returns'].std() * np.sqrt(252) * 100
-            risk_return_result = create_risk_return_gauge(predictions, current_price, volatility, enhanced_data, prediction_days)
-            
-            if risk_return_result:
-                risk_return_chart, risk_metrics = risk_return_result
-                st.plotly_chart(risk_return_chart, use_container_width=True, key="risk_return_gauge")
-                
-                # Display key metrics
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Expected Return", f"{risk_metrics['expected_return']:.1f}%")
-                with col2:
-                    st.metric("Success Probability", f"{risk_metrics['probability_of_gain']:.0f}%")
-                with col3:
-                    st.metric("Worst Case (5% VaR)", f"{risk_metrics['var_5_percent']:.1f}%")
-                with col4:
-                    st.metric("Risk-Adjusted Score", f"{risk_metrics['sharpe_ratio']:.2f}")
+        with st.expander("📖 How to read this chart"):
+            st.markdown("""
+            - **Green line** 📈: Stock price going up
+            - **Red line** 📉: Stock price going down  
+            - **Blue area** 🔮: AI's future predictions
+            - **Moving averages** 📊: Smooth trend lines that help spot patterns
+            - **Volume bars** 📊: How many shares were traded (taller = more activity)
+            """)
         
-        # Performance summary
-        total_time = time.time() - start_time
-        st.sidebar.success(f"⚡ Total time: {total_time:.1f}s")
+        main_chart = create_interactive_charts(enhanced_data, predictions, symbol)
+        st.plotly_chart(main_chart, use_container_width=True)
         
         # New comprehensive prediction charts with explanations
         st.markdown("### 🎯 Future Predictions Breakdown")
@@ -1098,7 +850,7 @@ def main():
             st.markdown("*See exactly what price our AI predicts for each day*")
             timeline_chart = create_prediction_timeline_chart(predictions, current_price, symbol)
             if timeline_chart:
-                st.plotly_chart(timeline_chart, use_container_width=True, key="prediction_timeline")
+                st.plotly_chart(timeline_chart, use_container_width=True)
             else:
                 st.info("📊 Chart will appear here after analysis")
         
@@ -1107,147 +859,32 @@ def main():
             st.markdown("*Perfect for planning your investment strategy*")
             weekly_chart = create_weekly_targets_chart(predictions, current_price, symbol)
             if weekly_chart:
-                st.plotly_chart(weekly_chart, use_container_width=True, key="weekly_targets")
+                st.plotly_chart(weekly_chart, use_container_width=True)
             else:
                 st.info("📊 Chart will appear here after analysis")
         
-        # Technical indicators with beginner explanation (if enabled)
-        if enable_technical_indicators:
-            # Display technical indicators
-            st.markdown("### 📊 Market Signals & Indicators")
-            st.markdown("*Professional trading signals that help predict price movements*")
+        # Risk-Return Analysis with explanation
+        st.markdown("### ⚖️ Investment Risk Assessment")
+        st.markdown("*Understanding the risk vs reward potential*")
+        
+        volatility = enhanced_data['Returns'].std() * np.sqrt(252) * 100
+        risk_return_chart = create_risk_return_gauge(predictions, current_price, volatility)
+        if risk_return_chart:
+            st.plotly_chart(risk_return_chart, use_container_width=True)
             
-            with st.expander("🎓 Learn about these market indicators"):
-                st.markdown("""
-                **RSI (Relative Strength)**: Shows if a stock is "overbought" (might go down) or "oversold" (might go up)
-                - Above 70 = Might be too expensive right now 📈
-                - Below 30 = Might be a good buying opportunity 📉
-                
-                **MACD (Moving Average)**: Compares short and long-term price trends
-                - Lines crossing up = Positive momentum 🟢
-                - Lines crossing down = Negative momentum 🔴
-                
-                **Bollinger Bands**: Shows if price is high or low compared to recent average
-                - Price near top band = Might be overpriced 🔴
-                - Price near bottom band = Might be underpriced 🟢
-                
-                **Volume**: How many shares are being traded
-                - High volume + price up = Strong buying interest 💪
-                - High volume + price down = Strong selling pressure ⚠️
-                """)
-            
-            tech_chart = create_technical_indicators_chart(enhanced_data)
-            if tech_chart:
-                st.plotly_chart(tech_chart, use_container_width=True, key="tech_indicators_orphaned")
+            # Add risk explanation
+            if volatility > 40:
+                risk_explanation = "🌋 **High Risk**: This stock's price changes a lot - could gain or lose significant value quickly!"
+            elif volatility > 25:
+                risk_explanation = "🌊 **Medium-High Risk**: Expect some ups and downs, but manageable for experienced investors"
+            elif volatility > 15:
+                risk_explanation = "📊 **Moderate Risk**: Reasonable price stability with some normal fluctuations"
             else:
-                st.info("� Technical indicators will appear here after analysis")
+                risk_explanation = "🏔️ **Lower Risk**: This stock tends to be more stable and predictable"
                 
-            with col2:
-                st.metric(
-                    "Success Probability", 
-                    f"{risk_metrics['probability_of_gain']:.0f}%",
-                    help="💡 Likelihood that the investment will be profitable"
-                )
-                
-            with col3:
-                st.metric(
-                    "Worst Case (5% VaR)",
-                    f"{risk_metrics['var_5_percent']:.1f}%",
-                    help="💡 5% chance of losing more than this amount"
-                )
-                
-            with col4:
-                st.metric(
-                    "Risk-Adjusted Score",
-                    f"{risk_metrics['sharpe_ratio']:.2f}",
-                    help="💡 Return per unit of risk (higher is better)"
-                )
-            
-            # Enhanced risk explanation based on multiple factors
-            risk_score = risk_metrics['risk_score']
-            if risk_score > 75:
-                risk_explanation = "� **Very High Risk**: Extreme volatility with significant potential for large gains or losses. Only suitable for experienced investors with high risk tolerance."
-            elif risk_score > 60:
-                risk_explanation = "🔥 **High Risk**: Substantial price swings expected. Potential for good returns but also significant losses. Requires careful monitoring."
-            elif risk_score > 40:
-                risk_explanation = "🌊 **Medium Risk**: Moderate price fluctuations with balanced risk-reward profile. Suitable for most investors with some experience."
-            elif risk_score > 25:
-                risk_explanation = "📊 **Low-Medium Risk**: Relatively stable with occasional fluctuations. Good for conservative growth strategies."
-            else:
-                risk_explanation = "🏔️ **Low Risk**: Very stable price movements with predictable patterns. Ideal for conservative investors."
-            
-            # Add probability-based recommendation
-            prob_gain = risk_metrics['probability_of_gain']
-            if prob_gain > 70:
-                probability_text = "🎯 **High confidence** in positive outcomes"
-            elif prob_gain > 50:
-                probability_text = "⚖️ **Moderate confidence** - balanced probability"
-            else:
-                probability_text = "⚠️ **Low confidence** - higher chance of losses"
-                
-            st.info(f"💡 **Risk Assessment**: {risk_explanation}")
-            st.info(f"🎲 **Success Likelihood**: {probability_text}")
-            
-            # Add advanced risk metrics explanation
-            with st.expander("🎓 Understanding Advanced Risk Metrics"):
-                st.markdown(f"""
-                **Comprehensive Risk Score ({risk_score:.0f}/100)**: Combines multiple risk factors:
-                - Historical volatility patterns
-                - Maximum historical losses (drawdown)
-                - Prediction uncertainty range
-                
-                **Success Probability ({prob_gain:.0f}%)**: Based on how many prediction scenarios show profits
-                - Above 70% = High confidence 🎯
-                - 50-70% = Moderate confidence ⚖️
-                - Below 50% = High uncertainty ⚠️
-                
-                **Value at Risk (VaR)**: There's a 5% chance you could lose more than {risk_metrics['var_5_percent']:.1f}%
-                
-                **Sharpe Ratio ({risk_metrics['sharpe_ratio']:.2f})**: Risk-adjusted return measure
-                - Above 1.0 = Good risk-adjusted returns ✅
-                - 0.5-1.0 = Acceptable returns 👍
-                - Below 0.5 = Poor risk-adjusted returns ⚠️
-                
-                **Maximum Drawdown**: Historical worst loss period was {risk_metrics['max_drawdown']:.1f}%
-                """)
-            
-            # Additional comprehensive risk analysis
-            st.markdown("#### 📊 Detailed Risk Analysis")
-            detailed_metrics = calculate_advanced_risk_metrics(enhanced_data, predictions, current_price)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**📈 Return Analysis**")
-                if 'avg_annual_return' in detailed_metrics:
-                    st.write(f"• Historical Annual Return: {detailed_metrics['avg_annual_return']:.1f}%")
-                st.write(f"• Expected Return Range: {risk_metrics['min_return']:.1f}% to {risk_metrics['max_return']:.1f}%")
-                if 'expected_gain' in detailed_metrics:
-                    st.write(f"• Average Gain (when positive): {detailed_metrics['expected_gain']:.1f}%")
-                    st.write(f"• Average Loss (when negative): {detailed_metrics['expected_loss']:.1f}%")
-                
-                st.markdown("**🎯 Probability Analysis**")
-                if 'prob_gain_10' in detailed_metrics:
-                    st.write(f"• Chance of >10% gain: {detailed_metrics['prob_gain_10']:.0f}%")
-                    st.write(f"• Chance of >5% loss: {detailed_metrics['prob_loss_5']:.0f}%")
-                st.write(f"• Overall success rate: {risk_metrics['probability_of_gain']:.0f}%")
-            
-            with col2:
-                st.markdown("**⚠️ Risk Measures**")
-                if 'downside_deviation' in detailed_metrics:
-                    st.write(f"• Downside Volatility: {detailed_metrics['downside_deviation']:.1f}%")
-                    st.write(f"• Sortino Ratio: {detailed_metrics['sortino_ratio']:.2f}")
-                if 'var_95' in detailed_metrics:
-                    st.write(f"• 1-Day VaR (95%): {detailed_metrics['var_95']:.2f}%")
-                    st.write(f"• Expected Shortfall: {detailed_metrics['expected_shortfall']:.2f}%")
-                
-                st.markdown("**📊 Risk-Adjusted Performance**")
-                if 'calmar_ratio' in detailed_metrics:
-                    st.write(f"• Calmar Ratio: {detailed_metrics['calmar_ratio']:.2f}")
-                st.write(f"• Sharpe Ratio: {risk_metrics['sharpe_ratio']:.2f}")
-                st.write(f"• Risk Score: {risk_score:.0f}/100")
+            st.info(f"💡 **Risk Level Explanation**: {risk_explanation}")
         else:
-            st.info("📊 Advanced risk analysis will appear here after analysis")
+            st.info("📊 Risk analysis will appear here after analysis")
         
         # Technical indicators with beginner explanation
         st.markdown("### 📊 Market Signals & Indicators")
@@ -1274,7 +911,7 @@ def main():
         
         tech_chart = create_technical_indicators_chart(enhanced_data)
         if tech_chart:
-            st.plotly_chart(tech_chart, use_container_width=True, key="tech_indicators_main")
+            st.plotly_chart(tech_chart, use_container_width=True)
         else:
             st.info("📊 Technical indicators will appear here once we have enough data to analyze.")
         
@@ -1376,7 +1013,7 @@ def main():
                 showlegend=False,
                 yaxis={'categoryorder': 'total ascending'}
             )
-            st.plotly_chart(fig_importance, use_container_width=True, key="model_importance")
+            st.plotly_chart(fig_importance, use_container_width=True)
             
             # Add explanation text
             st.info("""
@@ -1548,18 +1185,18 @@ def main():
     else:
         # Simple instruction message
         st.markdown("""
-        <div style="background-color: #ffffff; padding: 1.5rem; border-radius: 10px; border-left: 5px solid #1E88E5; margin-bottom: 1rem;">
-            <h3 style="color: #1E88E5; margin-bottom: 1rem;">📊 Welcome to Smart Stock Analyzer</h3>
-            <p style="color: #333333; font-size: 1.1rem; margin-bottom: 0.5rem;">Select a stock symbol in the sidebar and click <strong>"Start Analysis"</strong> to begin your AI-powered stock analysis.</p>
-            <p style="color: #666666; font-size: 1rem;"><strong>Need help getting started?</strong> Check the expandable help section in the sidebar.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        ### 📊 Welcome to Smart Stock Analyzer
+        
+        Select a stock symbol in the sidebar and click **"Start Analysis"** to begin your AI-powered stock analysis.
+        
+        **Need help getting started?** Check the expandable help section in the sidebar.
+        """)
         
         # Show a simple centered call-to-action
         st.markdown("""
-        <div style="text-align: center; padding: 2rem; background-color: #ffffff; border: 2px solid #1E88E5; border-radius: 15px; margin: 2rem 0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-            <h3 style="color: #1E88E5; margin-bottom: 1rem;">👈 Choose a stock symbol from the sidebar to get started</h3>
-            <p style="color: #333333; font-size: 1.1rem; font-weight: 500;">Popular choices: AAPL, TSLA, MSFT, AMZN, GOOGL</p>
+        <div style="text-align: center; padding: 2rem; background-color: #f0f2f6; border-radius: 10px; margin: 2rem 0;">
+            <h3>👈 Choose a stock symbol from the sidebar to get started</h3>
+            <p>Popular choices: AAPL, TSLA, MSFT, AMZN, GOOGL</p>
         </div>
         """, unsafe_allow_html=True)
 
