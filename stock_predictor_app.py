@@ -1064,6 +1064,93 @@ def main():
         st.balloons()
         st.success(f"🎉 Analysis complete in {analysis_time:.1f}s! Here's what our AI found...")
         
+        # Calculate key metrics for smart alerts
+        current_price = data['Close'].iloc[-1]
+        predicted_price = predictions[-1] if predictions is not None and len(predictions) > 0 else current_price
+        price_change = ((predicted_price - current_price) / current_price) * 100
+        
+        # Smart Alerts & Action Recommendations
+        st.markdown("### 🚨 Smart Analysis Summary")
+        
+        # Quick Decision Dashboard
+        alert_col1, alert_col2, alert_col3, alert_col4 = st.columns(4)
+        
+        with alert_col1:
+            # Trend Signal
+            if price_change > 5:
+                st.success("📈 **STRONG BUY**\nUpward Trend")
+                trend_emoji = "🚀"
+            elif price_change > 2:
+                st.info("👍 **BUY**\nPositive Trend") 
+                trend_emoji = "📈"
+            elif price_change > -2:
+                st.warning("⏳ **HOLD**\nSideways Trend")
+                trend_emoji = "➡️"
+            elif price_change > -5:
+                st.warning("👎 **WEAK SELL**\nNegative Trend")
+                trend_emoji = "📉"
+            else:
+                st.error("🚨 **STRONG SELL**\nDownward Trend")
+                trend_emoji = "💥"
+        
+        with alert_col2:
+            # Risk Level Assessment
+            volatility = enhanced_data['Returns'].std() * np.sqrt(252) * 100
+            if volatility < 20:
+                st.success("🟢 **LOW RISK**\nStable Stock")
+                risk_color = "green"
+            elif volatility < 35:
+                st.info("🟡 **MEDIUM RISK**\nModerate Volatility")
+                risk_color = "orange"
+            else:
+                st.error("🔴 **HIGH RISK**\nVery Volatile")
+                risk_color = "red"
+        
+        with alert_col3:
+            # Confidence Level
+            model_confidence = best_score * 100 if 'best_score' in locals() else 75
+            if model_confidence > 85:
+                st.success(f"🎯 **HIGH CONFIDENCE**\n{model_confidence:.0f}% Accuracy")
+            elif model_confidence > 70:
+                st.info(f"👍 **GOOD CONFIDENCE**\n{model_confidence:.0f}% Accuracy")
+            else:
+                st.warning(f"⚠️ **LOW CONFIDENCE**\n{model_confidence:.0f}% Accuracy")
+        
+        with alert_col4:
+            # Time Horizon Recommendation
+            if abs(price_change) > 10:
+                st.info("⏰ **SHORT TERM**\nMay happen in days")
+            elif abs(price_change) > 5:
+                st.info("📅 **MEDIUM TERM**\nMay take weeks")
+            else:
+                st.info("📆 **LONG TERM**\nMay take months")
+        
+        # Detailed Action Plan
+        st.markdown("### 🎯 Personalized Action Plan")
+        
+        action_insights = f"""
+        **Current Situation**: {symbol} is trading at ${current_price:.2f}
+        
+        **AI Prediction**: Price may {('increase' if price_change > 0 else 'decrease')} to ${predicted_price:.2f} ({price_change:+.1f}%) over {prediction_days} days
+        
+        **Risk Assessment**: This stock has {('low' if volatility < 20 else 'medium' if volatility < 35 else 'high')} risk with {volatility:.0f}% annual volatility
+        
+        **Recommendation**: 
+        """
+        
+        if price_change > 5 and volatility < 35:
+            action_insights += "🟢 **STRONG BUY** - Great opportunity with manageable risk"
+        elif price_change > 2:
+            action_insights += "🟢 **BUY** - Positive outlook, consider your risk tolerance"
+        elif price_change > -2:
+            action_insights += "🟡 **HOLD** - Wait for clearer signals before acting"
+        elif volatility > 40:
+            action_insights += "🔴 **AVOID** - Too risky for most investors"
+        else:
+            action_insights += "🔴 **SELL/AVOID** - Consider safer alternatives"
+        
+        st.info(action_insights)
+        
         # Company information with explanations
         st.markdown("### 🏢 About This Company")
         col1, col2, col3 = st.columns(3)
