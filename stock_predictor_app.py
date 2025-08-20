@@ -951,18 +951,56 @@ def main():
     # Analysis button
     analyze_button = st.sidebar.button("🚀 Start Analysis", type="primary")
     
-    # Add educational sidebar
+    # Enhanced educational sidebar with interactive learning
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 💡 Quick Tips")
-    st.sidebar.info("""
-    **Green signals** 🟢 = Good time to consider buying
+    st.sidebar.markdown("### 💡 Learning Center")
     
-    **Red signals** 🔴 = Might want to avoid or sell
+    # Interactive tutorials
+    with st.sidebar.expander("🎓 How to Use This App"):
+        st.markdown("""
+        **Step 1**: Choose a stock (try the popular buttons!)
+        
+        **Step 2**: Select time period (1 year is usually best)
+        
+        **Step 3**: Click "Start Analysis" and wait
+        
+        **Step 4**: Read the AI's recommendations
+        
+        **Step 5**: Make your investment decision!
+        """)
     
-    **Yellow signals** 🟡 = Wait and see
+    with st.sidebar.expander("📚 Stock Market Basics"):
+        st.markdown("""
+        **📈 Bull Market**: Prices going up (good for investors)
+        
+        **📉 Bear Market**: Prices going down (buy opportunities)
+        
+        **💎 Blue Chip**: Large, stable companies (safer)
+        
+        **🎲 Volatility**: How much prices jump around
+        
+        **📊 Volume**: How many shares are being traded
+        """)
     
-    💡 **Remember**: This is analysis, not financial advice!
-    """)
+    with st.sidebar.expander("⚠️ Risk Management"):
+        st.markdown("""
+        **🚨 Never invest money you can't afford to lose**
+        
+        **🎯 Diversify**: Don't put all eggs in one basket
+        
+        **⏰ Think long-term**: Markets go up and down
+        
+        **📰 Stay informed**: Read news about your stocks
+        
+        **🤝 Get advice**: Consider talking to a financial advisor
+        """)
+    
+    # Quick signal guide
+    st.sidebar.markdown("### 🚦 Signal Guide")
+    st.sidebar.success("🟢 **GREEN** = Consider Buying")
+    st.sidebar.warning("🟡 **YELLOW** = Wait & Watch") 
+    st.sidebar.error("🔴 **RED** = Avoid or Sell")
+    st.sidebar.info("💡 **Remember**: This is AI analysis, not financial advice!")
     
     # Initialize predictor with session state for persistence
     if 'predictor' not in st.session_state:
