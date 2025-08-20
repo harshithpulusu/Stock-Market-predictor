@@ -833,14 +833,90 @@ def main():
         **Prediction Days**: How many days into the future to predict
         """)
     
-    # Stock symbol input with more guidance
+    # Enhanced Stock Selection with Popular Stocks
     st.sidebar.markdown("### 📈 Choose a Stock to Analyze")
+    
+    # Popular stock buttons for quick selection
+    st.sidebar.markdown("**🔥 Popular Stocks - Click to Select:**")
+    popular_stocks = {
+        "🍎 Apple": "AAPL",
+        "🚗 Tesla": "TSLA", 
+        "💻 Microsoft": "MSFT",
+        "🔍 Google": "GOOGL",
+        "📦 Amazon": "AMZN",
+        "🎯 NVIDIA": "NVDA",
+        "🏦 JPMorgan": "JPM",
+        "☕ Starbucks": "SBUX"
+    }
+    
+    # Create rows of popular stock buttons
+    cols = st.sidebar.columns(2)
+    selected_popular = None
+    
+    for i, (name, ticker) in enumerate(popular_stocks.items()):
+        with cols[i % 2]:
+            if st.button(name, key=f"pop_{ticker}", use_container_width=True):
+                selected_popular = ticker
+                st.session_state.selected_stock = ticker
+    
+    # Stock symbol input with enhanced features
+    current_symbol = selected_popular if selected_popular else st.session_state.get('selected_stock', 'AAPL')
+    
     symbol = st.sidebar.text_input(
-        "Stock Symbol (Ticker)",
-        value="AAPL",
-        help="💡 Try AAPL, TSLA, MSFT, AMZN, or GOOGL for popular stocks",
+        "Or Enter Stock Symbol (Ticker)",
+        value=current_symbol,
+        help="💡 Enter any valid stock ticker (e.g., AAPL, TSLA, MSFT)",
         placeholder="e.g., AAPL"
     ).upper().strip()
+    
+    # Real-time price display if symbol is valid
+    if symbol:
+        try:
+            with st.sidebar:
+                with st.spinner(f"Getting live price for {symbol}..."):
+                    ticker = yf.Ticker(symbol)
+                    info = ticker.info
+                    current_price = info.get('currentPrice')
+                    prev_close = info.get('previousClose')
+                    company_name = info.get('longName', symbol)
+                    
+                    if current_price and prev_close:
+                        change = current_price - prev_close
+                        change_pct = (change / prev_close) * 100
+                        
+                        # Color-coded price display
+                        if change > 0:
+                            color = "#00C853"  # Green
+                            arrow = "📈"
+                        elif change < 0:
+                            color = "#FF1744"  # Red  
+                            arrow = "📉"
+                        else:
+                            color = "#757575"  # Gray
+                            arrow = "➡️"
+                        
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                    padding: 1rem; border-radius: 10px; color: white; text-align: center;">
+                            <h4 style="margin: 0; color: white;">{company_name}</h4>
+                            <h2 style="margin: 0.5rem 0; color: white;">${current_price:.2f} {arrow}</h2>
+                            <p style="margin: 0; color: {color};">
+                                {change:+.2f} ({change_pct:+.2f}%) from previous close
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Add market status
+                        import datetime
+                        now = datetime.datetime.now()
+                        if 9 <= now.hour < 16 and now.weekday() < 5:
+                            st.sidebar.success("🟢 Market is Open")
+                        else:
+                            st.sidebar.info("🔴 Market is Closed")
+                            
+        except Exception as e:
+            if symbol and len(symbol) > 0:
+                st.sidebar.warning(f"⚠️ Could not fetch live price for {symbol}")
     
     # Time period selection with explanations
     st.sidebar.markdown("### 📅 Analysis Time Period")
@@ -896,44 +972,87 @@ def main():
     if analyze_button and symbol:
         analysis_start = time.time()
         
-        # Progress bar with friendly messages
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # Fetch data
-        status_text.text("📊 Getting stock data from the market...")
-        progress_bar.progress(20)
-        
-        data, stock_info, success = predictor.fetch_data(symbol, period)
-        
-        if not success:
-            st.error("❌ Oops! We couldn't find that stock symbol. Try checking the spelling or use a popular one like AAPL, TSLA, or MSFT.")
-            return
-        
-        predictor.data = data
-        predictor.stock_info = stock_info
-        
-        # Create features
-        status_text.text("🔬 Analyzing price patterns and trends...")
-        progress_bar.progress(40)
-        
-        enhanced_data = predictor.create_technical_features(data)
-        
-        # Train model
-        status_text.text("🤖 AI is learning from historical data...")
-        progress_bar.progress(60)
-        
-        model_results, best_model_name, best_score = predictor.train_model(enhanced_data)
-        
-        # Make predictions
-        status_text.text("🔮 Creating your personalized prediction...")
-        progress_bar.progress(80)
-        
-        predictions = predictor.make_predictions(enhanced_data, prediction_days)
-        
-        progress_bar.progress(100)
-        status_text.text("✅ Your analysis is ready!")
-        time.sleep(1)
+        # Enhanced progress tracking with estimates
+        progress_container = st.container()
+        with progress_container:
+            st.markdown("### 🔄 Analysis in Progress")
+            
+            # Create progress components
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            time_remaining = st.empty()
+            cancel_button = st.button("❌ Cancel Analysis", key="cancel_analysis")
+            
+            # Progress tracking function
+            def update_progress(step, total_steps, message, current_time):
+                progress = int((step / total_steps) * 100)
+                elapsed = current_time - analysis_start
+                estimated_total = elapsed * (total_steps / step) if step > 0 else 60
+                remaining = max(0, estimated_total - elapsed)
+                
+                progress_bar.progress(progress)
+                status_text.markdown(f"**{message}** ({step}/{total_steps})")
+                
+                if remaining > 0:
+                    time_remaining.info(f"⏱️ Estimated time remaining: {remaining:.0f} seconds")
+                else:
+                    time_remaining.success("🎯 Almost done!")
+            
+            # Step 1: Fetch data
+            update_progress(1, 6, "📊 Fetching live market data", time.time())
+            if cancel_button:
+                st.warning("Analysis cancelled by user")
+                return
+                
+            data, stock_info, success = predictor.fetch_data(symbol, period)
+            
+            if not success:
+                st.error("❌ Oops! We couldn't find that stock symbol. Try checking the spelling or use a popular one like AAPL, TSLA, or MSFT.")
+                return
+            
+            predictor.data = data
+            predictor.stock_info = stock_info
+            
+            # Step 2: Data processing
+            update_progress(2, 6, "🔬 Analyzing price patterns and technical indicators", time.time())
+            if cancel_button:
+                st.warning("Analysis cancelled by user")
+                return
+                
+            enhanced_data = predictor.create_technical_features(data)
+            
+            # Step 3: AI Model Training
+            update_progress(3, 6, "🤖 Training AI model on historical patterns", time.time())
+            if cancel_button:
+                st.warning("Analysis cancelled by user")
+                return
+                
+            model_results, best_model_name, best_score = predictor.train_model(enhanced_data)
+            
+            # Step 4: Risk Analysis
+            update_progress(4, 6, "⚖️ Calculating risk and return metrics", time.time())
+            if cancel_button:
+                st.warning("Analysis cancelled by user")
+                return
+                
+            # Step 5: Predictions
+            update_progress(5, 6, "🔮 Generating future price predictions", time.time())
+            if cancel_button:
+                st.warning("Analysis cancelled by user")
+                return
+                
+            predictions = predictor.make_predictions(enhanced_data, prediction_days)
+            
+            # Step 6: Final preparation
+            update_progress(6, 6, "✨ Preparing your personalized report", time.time())
+            
+            progress_bar.progress(100)
+            status_text.success("🎉 Analysis Complete! Your results are ready below.")
+            time_remaining.success(f"⚡ Total analysis time: {time.time() - analysis_start:.1f} seconds")
+            time.sleep(1)
+            
+            # Clear progress indicators after completion
+            progress_container.empty()
         progress_bar.empty()
         status_text.empty()
         
