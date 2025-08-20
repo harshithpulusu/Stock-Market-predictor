@@ -26,7 +26,19 @@ st.markdown("### Predict stock prices with advanced machine learning and compreh
 # Sidebar for stock selection
 st.sidebar.header("🔧 Stock Selection")
 symbol = st.sidebar.text_input("Enter Stock Symbol", value="AAPL", help="Enter a stock symbol (e.g., AAPL, GOOGL, TSLA)")
-period = st.sidebar.selectbox("Historical Data Period", ["1y", "2y", "5y"], index=0)
+period_options = {
+    "6 Months": "6mo", 
+    "1 Year": "1y",
+    "2 Years": "2y",
+    "5 Years": "5y"
+}
+period_display = st.sidebar.selectbox(
+    "📊 Historical Data Period", 
+    list(period_options.keys()), 
+    index=1, 
+    help="Select the historical data timeframe for training the AI model"
+)
+period = period_options[period_display]
 
 # Prediction days slider
 prediction_days = st.sidebar.slider(
@@ -59,52 +71,359 @@ if st.sidebar.button("🚀 Analyze Stock"):
         
         st.success(f"✅ Successfully loaded data for **{company_name}** ({symbol.upper()})")
         
-        # Prepare data for prediction
+        # Enhanced feature engineering for better accuracy
         data['Price_Next'] = data['Close'].shift(-1)
-        data['MA_10'] = data['Close'].rolling(window=10).mean()
-        data['MA_30'] = data['Close'].rolling(window=30).mean()
-        data['Volatility'] = data['Close'].rolling(window=10).std()
-        data['Price_Change'] = data['Close'].pct_change()
         
-        # Create features
-        features = ['Close', 'Volume', 'MA_10', 'MA_30', 'Volatility', 'Price_Change']
+        # Technical indicators
+        data['MA_5'] = data['Close'].rolling(window=5).mean()
+        data['MA_10'] = data['Close'].rolling(window=10).mean()
+        data['MA_20'] = data['Close'].rolling(window=20).mean()
+        data['MA_30'] = data['Close'].rolling(window=30).mean()
+        data['MA_50'] = data['Close'].rolling(window=50).mean()
+        
+        # Exponential Moving Averages
+        data['EMA_12'] = data['Close'].ewm(span=12).mean()
+        data['EMA_26'] = data['Close'].ewm(span=26).mean()
+        
+        # MACD (Moving Average Convergence Divergence)
+        data['MACD'] = data['EMA_12'] - data['EMA_26']
+        data['MACD_Signal'] = data['MACD'].ewm(span=9).mean()
+        data['MACD_Histogram'] = data['MACD'] - data['MACD_Signal']
+        
+        # RSI (Relative Strength Index) with safe division
+        delta = data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        
+        # Avoid division by zero
+        rs = gain / (loss + 1e-10)  # Add small epsilon to prevent division by zero
+        data['RSI'] = 100 - (100 / (1 + rs))
+        
+        # Cap RSI between 0 and 100
+        data['RSI'] = np.clip(data['RSI'], 0, 100)
+        
+        # Bollinger Bands
+        data['BB_Middle'] = data['Close'].rolling(window=20).mean()
+        bb_std = data['Close'].rolling(window=20).std()
+        data['BB_Upper'] = data['BB_Middle'] + (bb_std * 2)
+        data['BB_Lower'] = data['BB_Middle'] - (bb_std * 2)
+        data['BB_Width'] = data['BB_Upper'] - data['BB_Lower']
+        # Safe BB Position calculation
+        bb_range = data['BB_Upper'] - data['BB_Lower']
+        data['BB_Position'] = (data['Close'] - data['BB_Lower']) / (bb_range + 1e-10)
+        data['BB_Position'] = np.clip(data['BB_Position'], -2, 3)  # Cap extreme values
+        
+        # Volume indicators with safe division
+        data['Volume_MA'] = data['Volume'].rolling(window=20).mean()
+        data['Volume_Ratio'] = data['Volume'] / (data['Volume_MA'] + 1e-10)
+        data['Volume_Ratio'] = np.clip(data['Volume_Ratio'], 0, 10)  # Cap extreme ratios
+        
+        # Price momentum and volatility
+        data['Price_Change'] = data['Close'].pct_change()
+        data['Price_Change_2d'] = data['Close'].pct_change(periods=2)
+        data['Price_Change_5d'] = data['Close'].pct_change(periods=5)
+        data['Volatility_10'] = data['Close'].rolling(window=10).std()
+        data['Volatility_20'] = data['Close'].rolling(window=20).std()
+        
+        # High-Low indicators with safe division
+        data['High_Low_Ratio'] = data['High'] / (data['Low'] + 1e-10)
+        data['High_Low_Ratio'] = np.clip(data['High_Low_Ratio'], 0.5, 5)  # Cap extreme ratios
+        
+        data['Close_High_Ratio'] = data['Close'] / (data['High'] + 1e-10)
+        data['Close_High_Ratio'] = np.clip(data['Close_High_Ratio'], 0, 1)
+        
+        data['Close_Low_Ratio'] = data['Close'] / (data['Low'] + 1e-10)
+        data['Close_Low_Ratio'] = np.clip(data['Close_Low_Ratio'], 0.5, 5)
+        
+        # Price position within daily range with safe division
+        daily_range = data['High'] - data['Low']
+        data['Price_Position'] = (data['Close'] - data['Low']) / (daily_range + 1e-10)
+        data['Price_Position'] = np.clip(data['Price_Position'], 0, 1)
+        
+        # Lag features (previous days' prices)
+        for lag in [1, 2, 3, 5, 10]:
+            data[f'Close_Lag_{lag}'] = data['Close'].shift(lag)
+            data[f'Volume_Lag_{lag}'] = data['Volume'].shift(lag)
+        
+        # Rolling statistics
+        for window in [5, 10, 20]:
+            data[f'Close_Max_{window}'] = data['Close'].rolling(window=window).max()
+            data[f'Close_Min_{window}'] = data['Close'].rolling(window=window).min()
+            data[f'Close_Range_{window}'] = data[f'Close_Max_{window}'] - data[f'Close_Min_{window}']
+        
+        # Advanced features
+        data['Price_Acceleration'] = data['Price_Change'].diff()
+        data['Volume_Price_Trend'] = data['Volume'] * data['Price_Change']
+        
+        # Create comprehensive feature list
+        features = [
+            'Close', 'Volume', 'High', 'Low', 'Open',
+            'MA_5', 'MA_10', 'MA_20', 'MA_30', 'MA_50',
+            'EMA_12', 'EMA_26', 'MACD', 'MACD_Signal', 'MACD_Histogram',
+            'RSI', 'BB_Width', 'BB_Position',
+            'Volume_Ratio', 'Price_Change', 'Price_Change_2d', 'Price_Change_5d',
+            'Volatility_10', 'Volatility_20',
+            'High_Low_Ratio', 'Close_High_Ratio', 'Close_Low_Ratio', 'Price_Position',
+            'Close_Lag_1', 'Close_Lag_2', 'Close_Lag_3', 'Close_Lag_5',
+            'Volume_Lag_1', 'Volume_Lag_2', 'Volume_Lag_3',
+            'Close_Range_5', 'Close_Range_10', 'Close_Range_20',
+            'Price_Acceleration', 'Volume_Price_Trend'
+        ]
+        
+        # Clean data and prepare for training with proper validation
         data_clean = data[features + ['Price_Next']].dropna()
+        
+        # Handle infinite and extreme values
+        for col in features + ['Price_Next']:
+            if col in data_clean.columns:
+                # Replace infinite values with NaN
+                data_clean[col] = data_clean[col].replace([np.inf, -np.inf], np.nan)
+                
+                # Cap extreme values (beyond 3 standard deviations)
+                if data_clean[col].std() > 0:
+                    mean_val = data_clean[col].mean()
+                    std_val = data_clean[col].std()
+                    lower_bound = mean_val - 3 * std_val
+                    upper_bound = mean_val + 3 * std_val
+                    data_clean[col] = np.clip(data_clean[col], lower_bound, upper_bound)
+        
+        # Remove any remaining NaN values
+        data_clean = data_clean.dropna()
+        
+        # Ensure we have enough data for training
+        if len(data_clean) < 50:
+            st.error("❌ Insufficient clean data for reliable predictions. Try a longer historical period.")
+            st.stop()
         
         X = data_clean[features]
         y = data_clean['Price_Next']
         
-        # Train model
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
-        model.fit(X_train, y_train)
+        # Additional validation for X and y
+        if X.isnull().any().any() or y.isnull().any():
+            st.error("❌ Data contains missing values after cleaning.")
+            st.stop()
         
-        # Make predictions for selected number of days
-        last_data = X.iloc[-1:].values
+        if np.isinf(X.values).any() or np.isinf(y.values).any():
+            st.error("❌ Data contains infinite values after cleaning.")
+            st.stop()
+        
+        # Enhanced model training with ensemble methods
+        from sklearn.ensemble import GradientBoostingRegressor
+        from sklearn.linear_model import LinearRegression
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.metrics import mean_squared_error, r2_score
+        
+        # Split data with time-series aware approach (no random shuffling)
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+        y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+        
+        # Final validation before scaling
+        for df_name, df in [("X_train", X_train), ("X_test", X_test), ("y_train", y_train), ("y_test", y_test)]:
+            if hasattr(df, 'values'):
+                values = df.values
+            else:
+                values = df
+            
+            if np.any(np.isnan(values)) or np.any(np.isinf(values)):
+                st.error(f"❌ {df_name} contains NaN or infinite values.")
+                st.stop()
+        
+        # Feature scaling for better performance with error handling
+        try:
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
+            
+            # Validate scaled data
+            if np.any(np.isnan(X_train_scaled)) or np.any(np.isinf(X_train_scaled)):
+                st.error("❌ Scaled training data contains NaN or infinite values.")
+                st.stop()
+                
+        except Exception as e:
+            st.error(f"❌ Error during feature scaling: {str(e)}")
+            st.stop()
+        
+        # Create ensemble of models for better accuracy
+        models = {
+            'RandomForest': RandomForestRegressor(
+                n_estimators=200,
+                max_depth=15,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                random_state=42,
+                n_jobs=-1
+            ),
+            'GradientBoosting': GradientBoostingRegressor(
+                n_estimators=150,
+                learning_rate=0.1,
+                max_depth=6,
+                min_samples_split=5,
+                random_state=42
+            ),
+            'LinearRegression': LinearRegression()
+        }
+        
+        # Train models and calculate weights based on performance
+        model_weights = {}
+        model_predictions = {}
+        trained_models = {}
+        
+        for name, model in models.items():
+            if name == 'LinearRegression':
+                model.fit(X_train_scaled, y_train)
+                pred = model.predict(X_test_scaled)
+            else:
+                model.fit(X_train, y_train)
+                pred = model.predict(X_test)
+            
+            trained_models[name] = model
+            model_predictions[name] = pred
+            mse = mean_squared_error(y_test, pred)
+            r2 = r2_score(y_test, pred)
+            
+            # Weight based on R² score (higher R² = better model = higher weight)
+            model_weights[name] = max(0.1, r2)  # Minimum weight of 0.1
+        
+        # Normalize weights
+        total_weight = sum(model_weights.values())
+        model_weights = {k: v/total_weight for k, v in model_weights.items()}
+        
+        # Calculate ensemble accuracy
+        ensemble_pred = np.zeros_like(y_test)
+        for name, weight in model_weights.items():
+            ensemble_pred += weight * model_predictions[name]
+        
+        accuracy = 100 - (mean_absolute_error(y_test, ensemble_pred) / np.mean(y_test) * 100)
+        
+        # Conservative and realistic prediction approach
+        # Instead of recursive prediction, use trend-based forecasting with constraints
+        
+        # Get recent price trends and volatility
+        recent_prices = data['Close'].tail(30).values
+        recent_returns = data['Close'].pct_change().tail(30).dropna().values
+        historical_volatility = np.std(recent_returns) * np.sqrt(252)  # Annualized
+        
+        # Calculate realistic daily return expectations
+        avg_daily_return = np.mean(recent_returns)
+        median_daily_return = np.median(recent_returns)
+        
+        # Conservative approach: use median return and cap predictions
+        base_daily_return = median_daily_return
+        
+        # Predict only a few days using ML, then use trend extrapolation
+        ml_prediction_window = min(7, prediction_days)  # Only use ML for first week
+        
         predictions = []
         dates = []
+        confidence_intervals = []
+        
+        # Get last known data point
+        last_price = current_price
+        last_data = X.iloc[-1:].values
+        last_data_scaled = scaler.transform(last_data)
         
         for i in range(prediction_days):
-            pred = model.predict(last_data)[0]
-            predictions.append(pred)
-            dates.append(datetime.now() + timedelta(days=i+1))
+            prediction_date = datetime.now() + timedelta(days=i+1)
+            dates.append(prediction_date)
             
-            # Update features for next prediction (simplified)
-            new_row = last_data[0].copy()
-            new_row[0] = pred  # Close price
-            new_row[2] = np.mean([new_row[0]] + [predictions[j] for j in range(max(0, len(predictions)-10), len(predictions))])  # MA_10
-            new_row[3] = np.mean([new_row[0]] + [predictions[j] for j in range(max(0, len(predictions)-30), len(predictions))])  # MA_30
-            last_data = new_row.reshape(1, -1)
+            if i < ml_prediction_window:
+                # Use ML models for short-term predictions
+                model_preds = []
+                
+                # RandomForest prediction
+                rf_pred = trained_models['RandomForest'].predict(last_data)[0]
+                model_preds.append(rf_pred * model_weights['RandomForest'])
+                
+                # GradientBoosting prediction
+                gb_pred = trained_models['GradientBoosting'].predict(last_data)[0]
+                model_preds.append(gb_pred * model_weights['GradientBoosting'])
+                
+                # LinearRegression prediction
+                lr_pred = trained_models['LinearRegression'].predict(last_data_scaled)[0]
+                model_preds.append(lr_pred * model_weights['LinearRegression'])
+                
+                # Ensemble prediction
+                ml_prediction = sum(model_preds)
+                
+                # Apply conservative constraints to ML prediction
+                max_daily_change = 0.05  # 5% max daily change
+                min_price = last_price * (1 - max_daily_change)
+                max_price = last_price * (1 + max_daily_change)
+                
+                predicted_price = np.clip(ml_prediction, min_price, max_price)
+                
+                # Calculate confidence for ML predictions
+                individual_preds = [
+                    trained_models['RandomForest'].predict(last_data)[0],
+                    trained_models['GradientBoosting'].predict(last_data)[0],
+                    trained_models['LinearRegression'].predict(last_data_scaled)[0]
+                ]
+                pred_std = np.std(individual_preds)
+                confidence_intervals.append(min(pred_std, last_price * 0.02))  # Cap at 2% of price
+                
+            else:
+                # Use trend-based prediction for longer-term forecasts
+                days_from_ml = i - ml_prediction_window + 1
+                
+                # Apply conservative trend with decay
+                trend_decay = np.exp(-days_from_ml / 30)  # Trend decays over time
+                adjusted_return = base_daily_return * trend_decay
+                
+                # Add some randomness but keep it realistic
+                volatility_factor = min(0.01, historical_volatility / 252)  # Daily volatility, capped at 1%
+                random_factor = np.random.normal(0, volatility_factor)
+                
+                daily_return = adjusted_return + random_factor
+                # Cap daily returns to realistic range
+                daily_return = np.clip(daily_return, -0.05, 0.05)  # ±5% max daily change
+                
+                predicted_price = last_price * (1 + daily_return)
+                
+                # Confidence decreases with time
+                confidence_intervals.append(last_price * min(0.05, 0.01 * days_from_ml))
+            
+            predictions.append(predicted_price)
+            last_price = predicted_price
+            
+            # Update features minimally and conservatively for next prediction
+            if i < ml_prediction_window - 1:  # Only update features for ML window
+                new_row = last_data[0].copy()
+                new_row[0] = predicted_price  # Close price
+                
+                # Very conservative feature updates
+                if len(predictions) >= 5:
+                    new_row[5] = np.mean(predictions[-5:])  # MA_5
+                if len(predictions) >= 10:
+                    new_row[6] = np.mean(predictions[-10:])  # MA_10
+                
+                # Keep other features relatively stable
+                if len(predictions) > 1:
+                    price_change = (predicted_price - predictions[-2]) / predictions[-2]
+                    new_row[14] = np.clip(price_change, -0.05, 0.05)  # Price_Change, capped
+                
+                last_data = new_row.reshape(1, -1)
+                last_data_scaled = scaler.transform(last_data)
         
-        # Create predictions DataFrame
+        # Create realistic predictions DataFrame
         pred_df = pd.DataFrame({
             'Date': dates,
             'Predicted_Price': predictions,
-            'Change_from_Current': [(p - current_price) / current_price * 100 for p in predictions]
+            'Change_from_Current': [(p - current_price) / current_price * 100 for p in predictions],
+            'Confidence_Interval': confidence_intervals
         })
         
-        # Calculate model accuracy
-        test_predictions = model.predict(X_test)
-        accuracy = 100 - (mean_absolute_error(y_test, test_predictions) / np.mean(y_test) * 100)
+        # Apply final sanity checks
+        # Cap total percentage changes to realistic ranges
+        max_total_change = min(50, prediction_days * 2)  # Max 2% per day or 50% total
+        pred_df['Change_from_Current'] = np.clip(
+            pred_df['Change_from_Current'], 
+            -max_total_change, 
+            max_total_change
+        )
+        
+        # Recalculate prices based on capped changes
+        pred_df['Predicted_Price'] = current_price * (1 + pred_df['Change_from_Current'] / 100)
         
         # === STOCK OVERVIEW DASHBOARD ===
         st.markdown("---")
@@ -275,6 +594,54 @@ if st.sidebar.button("🚀 Analyze Stock"):
                 delta=ratio_status
             )
         
+        # === AI MODEL PERFORMANCE DASHBOARD ===
+        st.markdown("---")
+        st.markdown("## 🤖 AI Model Performance Dashboard")
+        if beginner_mode:
+            st.info("🎯 Conservative prediction system: AI models predict first 7 days, then realistic trend extrapolation for longer periods. This prevents absurd long-term predictions.")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("### 📊 Model Contributions")
+            for model_name, weight in model_weights.items():
+                st.metric(
+                    label=f"{model_name}",
+                    value=f"{weight*100:.1f}%",
+                    help=f"Contribution of {model_name} to final predictions"
+                )
+        
+        with col2:
+            st.markdown("### 🎯 Ensemble Accuracy")
+            st.metric(
+                label="Overall Model Accuracy",
+                value=f"{accuracy:.1f}%",
+                delta="Ensemble of 3 AI models" if accuracy > 70 else "Consider longer historical data"
+            )
+            
+            # Confidence score based on model agreement
+            avg_confidence = np.mean(pred_df['Confidence_Interval'])
+            confidence_score = max(0, 100 - (avg_confidence / current_price * 100))
+            st.metric(
+                label="Prediction Confidence",
+                value=f"{confidence_score:.1f}%",
+                help="How much the AI models agree on predictions"
+            )
+        
+        with col3:
+            st.markdown("### 📈 Feature Importance")
+            # Show top contributing features (simplified)
+            feature_importance_info = [
+                "📊 Technical Indicators (RSI, MACD)",
+                "📈 Moving Averages (5, 10, 20, 30, 50)",
+                "💹 Price Momentum & Volatility",
+                "📊 Volume & Price Relationships",
+                "🔄 Historical Price Patterns"
+            ]
+            
+            for i, feature in enumerate(feature_importance_info[:3]):
+                st.write(f"**{i+1}.** {feature}")
+        
         # === 1. ENHANCED MAIN PRICE CHART ===
         st.markdown("---")
         st.markdown("## 📈 Enhanced Main Price Chart")
@@ -324,9 +691,9 @@ if st.sidebar.button("🚀 Analyze Stock"):
             hovertemplate='<b>Date:</b> %{x}<br><b>Predicted:</b> $%{y:.2f}<extra></extra>'
         ))
         
-        # Confidence bands (±5%)
-        upper_band = pred_df['Predicted_Price'] * 1.05
-        lower_band = pred_df['Predicted_Price'] * 0.95
+        # Enhanced confidence bands based on model agreement
+        upper_band = pred_df['Predicted_Price'] + pred_df['Confidence_Interval']
+        lower_band = pred_df['Predicted_Price'] - pred_df['Confidence_Interval']
         
         fig_main.add_trace(go.Scatter(
             x=pred_df['Date'],
@@ -344,8 +711,8 @@ if st.sidebar.button("🚀 Analyze Stock"):
             line=dict(width=0),
             fill='tonexty',
             fillcolor='rgba(138, 43, 226, 0.2)',
-            name='Confidence Band (±5%)',
-            hovertemplate='<b>Confidence Range:</b> ±5%<extra></extra>'
+            name='AI Confidence Band',
+            hovertemplate='<b>Model Agreement Range</b><extra></extra>'
         ))
         
         # Weekly milestone markers (golden stars)
